@@ -719,6 +719,129 @@ void rmw_operation::set_default_write_isolation(std::string_view value) {
     default_write_isolation = parse_write_isolation(value);
 }
 
+// Whatever value we set here will be overriden by set_alternator_replication_factor()
+int executor::alternator_replication_factor = 3;
+
+void executor::set_alternator_replication_factor(int rf) {
+    alternator_replication_factor = rf;
+}
+
+static void validate_legal_write_consistency_level(std::string_view value) {
+    static const std::unordered_set<std::string_view> allowed_write_consistency_level = {
+        "ANY","ONE","TWO","THREE","QUORUM","ALL","LOCAL_QUORUM","EACH_QUORUM","SERIAL","LOCAL_SERIAL","LOCAL_ONE",
+    };
+    if (!allowed_write_consistency_level.contains(value))
+    {
+        throw std::runtime_error(format("Invalid --alternator-write-consistency-level "
+                "setting '{}'. Allowed values: {}.",
+                value, allowed_write_consistency_level));
+    }
+}
+
+static void validate_legal_read_consistency_level(std::string_view value) {
+    static const std::unordered_set<std::string_view> allowed_read_consistency_level = {
+        "ONE","TWO","THREE","QUORUM","ALL","LOCAL_QUORUM","SERIAL","LOCAL_SERIAL","LOCAL_ONE",
+    };
+    if (!allowed_read_consistency_level.contains(value))
+    {
+        throw std::runtime_error(format("Invalid --alternator-read-consistency-level "
+                "setting '{}'. Allowed values: {}.",
+                value, allowed_read_consistency_level));
+    }
+}
+
+static db::consistency_level parse_consistency_level(std::string_view value) {
+    if (!value.empty()) {
+        switch (value[0]) {
+        case 'A':
+            switch (value[1]){
+            case 'N':
+                return db::consistency_level::ANY;
+            case 'L':
+                return db::consistency_level::ALL;
+            }
+        case 'E':
+            return db::consistency_level::EACH_QUORUM;
+        case 'L':
+            switch (value[6]){
+            case 'O':
+                return db::consistency_level::LOCAL_ONE;
+            case 'Q':
+                return db::consistency_level::LOCAL_QUORUM;
+            }
+        case 'O':
+            return db::consistency_level::ONE;
+        case 'Q':
+            return db::consistency_level::QUORUM;
+        case 'T':
+            switch (value[1]){
+            case 'H':
+                return db::consistency_level::THREE;
+            case 'W':
+                return db::consistency_level::TWO;
+            }
+        }
+    }
+    return executor::default_write_consistency_level;
+}
+
+static db::consistency_level parse_consistency_level_lwt(std::string_view value) {
+    if (!value.empty()) {
+        switch (value[0]) {
+        case 'L':
+            return db::consistency_level::LOCAL_SERIAL;
+        case 'Q':
+            return db::consistency_level::SERIAL;
+        }
+    }
+    return executor::default_write_consistency_level_lwt;
+
+}
+
+db::consistency_level executor::default_write_consistency_level = db::consistency_level::LOCAL_QUORUM;
+db::consistency_level executor::default_write_consistency_level_lwt = db::consistency_level::LOCAL_SERIAL;
+db::consistency_level executor::default_read_consistency_level = db::consistency_level::LOCAL_ONE;
+db::consistency_level executor::default_query_consistency_level = db::consistency_level::TWO;
+
+void executor::set_default_write_consistency_level(std::string_view value){
+    if (value.empty()){
+        elogger.warn("Without providing write consistency level,using the default CL='{}' for Alternator write request.",
+                    default_write_consistency_level);
+    }else{
+        validate_legal_write_consistency_level(value);
+        default_write_consistency_level = parse_consistency_level(value);
+        default_write_consistency_level_lwt = parse_consistency_level_lwt(value);
+        if (default_write_consistency_level != db::consistency_level::LOCAL_QUORUM) {
+            elogger.warn("Changing the default write consistency level may affect data reliability and service availability. Please make sure you know what the correct configuration is.");
+        }
+    }
+}
+
+void executor::set_default_read_consistency_level(std::string_view value){
+    if (value.empty()){
+        elogger.warn("Without providing read consistency level,using the default CL='{}' for Alternator read request.",
+                    default_read_consistency_level);
+    }else{
+        validate_legal_read_consistency_level(value);
+        default_read_consistency_level = parse_consistency_level(value);
+        if (default_read_consistency_level != db::consistency_level::LOCAL_ONE) {
+            elogger.warn("Changing the default read consistency level may affect data reliability and service availability. Please make sure you know what the correct configuration is.");
+        }
+    }
+}
+
+void executor::set_default_query_consistency_level(std::string_view value) {
+    if (value.empty()) {
+        elogger.warn("Without providing query consistency level,using the default CL='{}' for Alternator query request.", default_query_consistency_level);
+    } else {
+        validate_legal_read_consistency_level(value);
+        default_query_consistency_level = parse_consistency_level(value);
+        if (default_query_consistency_level != db::consistency_level::TWO) {
+            elogger.warn("Changing the default query consistency level may affect data reliability and service availability. Please make sure you know what the correct configuration is.");
+        }
+    }
+}
+
 enum class update_tags_action { add_tags, delete_tags };
 static void update_tags_map(const rjson::value& tags, std::map<sstring, sstring>& tags_map, update_tags_action action) {
     if (action == update_tags_action::add_tags) {
@@ -1566,7 +1689,7 @@ static future<std::unique_ptr<rjson::value>> get_previous_item(
     auto selection = cql3::selection::selection::wildcard(schema);
     auto command = previous_item_read_command(proxy, schema, ck, selection);
     command->allow_limit = db::allow_per_partition_rate_limit::yes;
-    auto cl = db::consistency_level::LOCAL_QUORUM;
+    auto cl = executor::default_write_consistency_level;
 
     return proxy.query(schema, command, to_partition_ranges(*schema, pk), cl, service::storage_proxy::coordinator_query_options(executor::default_timeout(), std::move(permit), client_state)).then(
             [schema, command, selection = std::move(selection)] (service::storage_proxy::coordinator_query_result qr) {
@@ -1599,7 +1722,7 @@ future<executor::request_return_type> rmw_operation::execute(service::storage_pr
                 if (!m) {
                     return make_ready_future<executor::request_return_type>(api_error::conditional_check_failed("Failed condition."));
                 }
-                return proxy.mutate(std::vector<mutation>{std::move(*m)}, db::consistency_level::LOCAL_QUORUM, executor::default_timeout(), trace_state, std::move(permit), db::allow_per_partition_rate_limit::yes).then([this] () mutable {
+                return proxy.mutate(std::vector<mutation>{std::move(*m)}, executor::default_write_consistency_level, executor::default_timeout(), trace_state, std::move(permit), db::allow_per_partition_rate_limit::yes).then([this] () mutable {
                     return rmw_operation_return(std::move(_return_attributes));
                 });
             });
@@ -1607,7 +1730,7 @@ future<executor::request_return_type> rmw_operation::execute(service::storage_pr
     } else if (_write_isolation != write_isolation::LWT_ALWAYS) {
         std::optional<mutation> m = apply(nullptr, api::new_timestamp());
         assert(m); // !needs_read_before_write, so apply() did not check a condition
-        return proxy.mutate(std::vector<mutation>{std::move(*m)}, db::consistency_level::LOCAL_QUORUM, executor::default_timeout(), trace_state, std::move(permit), db::allow_per_partition_rate_limit::yes).then([this] () mutable {
+        return proxy.mutate(std::vector<mutation>{std::move(*m)}, executor::default_write_consistency_level, executor::default_timeout(), trace_state, std::move(permit), db::allow_per_partition_rate_limit::yes).then([this] () mutable {
             return rmw_operation_return(std::move(_return_attributes));
         });
     }
@@ -1620,7 +1743,7 @@ future<executor::request_return_type> rmw_operation::execute(service::storage_pr
             nullptr;
     return proxy.cas(schema(), shared_from_this(), read_command, to_partition_ranges(*schema(), _pk),
             {timeout, std::move(permit), client_state, trace_state},
-            db::consistency_level::LOCAL_SERIAL, db::consistency_level::LOCAL_QUORUM, timeout, timeout).then([this, read_command] (bool is_applied) mutable {
+            executor::default_write_consistency_level_lwt, executor::default_write_consistency_level, timeout, timeout).then([this, read_command] (bool is_applied) mutable {
         if (!is_applied) {
             return make_ready_future<executor::request_return_type>(api_error::conditional_check_failed("Failed condition."));
         }
@@ -1897,7 +2020,7 @@ static future<> cas_write(service::storage_proxy& proxy, schema_ptr schema, dht:
     auto op = seastar::make_shared<put_or_delete_item_cas_request>(schema, std::move(mutation_builders));
     return proxy.cas(schema, op, nullptr, to_partition_ranges(dk),
             {timeout, std::move(permit), client_state, trace_state},
-            db::consistency_level::LOCAL_SERIAL, db::consistency_level::LOCAL_QUORUM,
+            executor::default_write_consistency_level_lwt, executor::default_write_consistency_level,
             timeout, timeout).discard_result();
     // We discarded cas()'s future value ("is_applied") because BatchWriteItems
     // does not need to support conditional updates.
@@ -1948,7 +2071,7 @@ static future<> do_batch_write(service::storage_proxy& proxy,
             mutations.push_back(b.second.build(b.first, now));
         }
         return proxy.mutate(std::move(mutations),
-                db::consistency_level::LOCAL_QUORUM,
+                executor::default_write_consistency_level,
                 executor::default_timeout(),
                 trace_state,
                 std::move(permit),
@@ -3101,7 +3224,21 @@ static db::consistency_level get_read_consistency(const rjson::value& request) {
             throw api_error::validation("ConsistentRead flag must be a boolean");
         }
     }
-    return consistent_read ? db::consistency_level::LOCAL_QUORUM : db::consistency_level::LOCAL_ONE;
+    if (executor::default_write_consistency_level == db::consistency_level::QUORUM) {
+        if (executor::alternator_replication_factor == 2) {
+            return consistent_read ? db::consistency_level::THREE : executor::default_query_consistency_level;
+        } else {
+            return consistent_read ? db::consistency_level::QUORUM : executor::default_query_consistency_level;
+        }
+    } else if (executor::default_write_consistency_level == db::consistency_level::LOCAL_QUORUM) {
+        return consistent_read ? db::consistency_level::LOCAL_QUORUM : executor::default_query_consistency_level;
+    } else {
+        // FIXME: without considering the cluster replication factor and the
+        // number of data centers, it is hard to set the read consistency level
+        // to ensure strong consistent reads when write consistency level is
+        // not QUORUM or LOCAL_QUORUM.
+        throw api_error::validation("Consistent reads are not allowed when alternator-write-consistency-level is not QUORUM or LOCAL_QUORUM.");
+    }
 }
 
 // describe_item() wraps the result of describe_single_item() by a map
@@ -3133,7 +3270,7 @@ future<executor::request_return_type> executor::get_item(client_state& client_st
     tracing::add_table_name(trace_state, schema->ks_name(), schema->cf_name());
 
     rjson::value& query_key = request["Key"];
-    db::consistency_level cl = get_read_consistency(request);
+    db::consistency_level cl = executor::default_read_consistency_level;
 
     partition_key pk = pk_from_json(query_key, schema);
     dht::partition_range_vector partition_ranges{dht::partition_range(dht::decorate_key(*schema, pk))};
@@ -3813,10 +3950,11 @@ future<executor::request_return_type> executor::scan(client_state& client_state,
     rjson::value* exclusive_start_key = rjson::find(request, "ExclusiveStartKey");
 
     db::consistency_level cl = get_read_consistency(request);
-    if (table_type == table_or_view_type::gsi && cl != db::consistency_level::LOCAL_ONE) {
+    if (table_type == table_or_view_type::gsi && cl != executor::default_query_consistency_level) {
         return make_ready_future<request_return_type>(api_error::validation(
                 "Consistent reads are not allowed on global indexes (GSI)"));
     }
+
     rjson::value* limit_json = rjson::find(request, "Limit");
     uint32_t limit = limit_json ? limit_json->GetUint64() : std::numeric_limits<uint32_t>::max();
     if (limit <= 0) {
@@ -4273,11 +4411,13 @@ future<executor::request_return_type> executor::query(client_state& client_state
     tracing::add_table_name(trace_state, schema->ks_name(), schema->cf_name());
 
     rjson::value* exclusive_start_key = rjson::find(request, "ExclusiveStartKey");
+
     db::consistency_level cl = get_read_consistency(request);
-    if (table_type == table_or_view_type::gsi && cl != db::consistency_level::LOCAL_ONE) {
+    if (table_type == table_or_view_type::gsi && cl != executor::default_query_consistency_level) {
         return make_ready_future<request_return_type>(api_error::validation(
                 "Consistent reads are not allowed on global indexes (GSI)"));
     }
+
     rjson::value* limit_json = rjson::find(request, "Limit");
     uint32_t limit = limit_json ? limit_json->GetUint64() : std::numeric_limits<uint32_t>::max();
     if (limit <= 0) {
@@ -4413,6 +4553,7 @@ future<executor::request_return_type> executor::describe_endpoints(client_state&
     return make_ready_future<executor::request_return_type>(make_jsonable(std::move(response)));
 }
 
+
 static std::map<sstring, sstring> get_network_topology_options(service::storage_proxy& sp, gms::gossiper& gossiper, int rf) {
     std::map<sstring, sstring> options;
     sstring rf_str = std::to_string(rf);
@@ -4455,7 +4596,7 @@ future<executor::request_return_type> executor::describe_continuous_backups(clie
 static future<std::vector<mutation>> create_keyspace(std::string_view keyspace_name, service::storage_proxy& sp, service::migration_manager& mm, gms::gossiper& gossiper, api::timestamp_type ts) {
     sstring keyspace_name_str(keyspace_name);
     int endpoint_count = gossiper.get_endpoint_states().size();
-    int rf = 3;
+    int rf = alternator_replication_factor;
     if (endpoint_count < rf) {
         rf = 1;
         elogger.warn("Creating keyspace '{}' for Alternator with unsafe RF={} because cluster only has {} nodes.",
