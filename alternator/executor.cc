@@ -3911,8 +3911,9 @@ future<executor::request_return_type> executor::scan(client_state& client_state,
 
     db::consistency_level cl = get_read_consistency(request);
     if (table_type == table_or_view_type::gsi && cl != db::consistency_level::LOCAL_ONE) {
-        return make_ready_future<request_return_type>(api_error::validation(
-                "Consistent reads are not allowed on global indexes (GSI)"));
+        cl = db::consistency_level::LOCAL_ONE;
+        //return make_ready_future<request_return_type>(api_error::validation(
+        //        "Consistent reads are not allowed on global indexes (GSI)"));
     }
     rjson::value* limit_json = rjson::find(request, "Limit");
     uint32_t limit = limit_json ? limit_json->GetUint64() : std::numeric_limits<uint32_t>::max();
@@ -4372,8 +4373,9 @@ future<executor::request_return_type> executor::query(client_state& client_state
     rjson::value* exclusive_start_key = rjson::find(request, "ExclusiveStartKey");
     db::consistency_level cl = get_read_consistency(request);
     if (table_type == table_or_view_type::gsi && cl != db::consistency_level::LOCAL_ONE) {
-        return make_ready_future<request_return_type>(api_error::validation(
-                "Consistent reads are not allowed on global indexes (GSI)"));
+        cl = db::consistency_level::LOCAL_ONE;
+        //return make_ready_future<request_return_type>(api_error::validation(
+        //        "Consistent reads are not allowed on global indexes (GSI)"));
     }
     rjson::value* limit_json = rjson::find(request, "Limit");
     uint32_t limit = limit_json ? limit_json->GetUint64() : std::numeric_limits<uint32_t>::max();
