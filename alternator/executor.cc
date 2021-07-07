@@ -4523,6 +4523,12 @@ future<executor::request_return_type> executor::describe_endpoints(client_state&
     return make_ready_future<executor::request_return_type>(make_jsonable(std::move(response)));
 }
 
+int alternator_replication_factor = 3;
+
+void executor::set_alternator_replication_factor(int rf){
+    alternator_replication_factor = rf;
+}
+
 static std::map<sstring, sstring> get_network_topology_options(service::storage_proxy& sp, gms::gossiper& gossiper, int rf) {
     std::map<sstring, sstring> options;
     sstring rf_str = std::to_string(rf);
@@ -4569,7 +4575,7 @@ future<executor::request_return_type> executor::describe_continuous_backups(clie
 static future<std::vector<mutation>> create_keyspace(std::string_view keyspace_name, service::storage_proxy& sp, gms::gossiper& gossiper, api::timestamp_type ts) {
     sstring keyspace_name_str(keyspace_name);
     int endpoint_count = gossiper.num_endpoints();
-    int rf = 3;
+    int rf = alternator_replication_factor;
     if (endpoint_count < rf) {
         rf = 1;
         elogger.warn("Creating keyspace '{}' for Alternator with unsafe RF={} because cluster only has {} nodes.",

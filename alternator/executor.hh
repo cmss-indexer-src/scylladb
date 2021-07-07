@@ -220,6 +220,7 @@ public:
     static void set_default_timeout(db::timeout_clock::duration timeout);
     static void set_default_write_consistency_level(std::string_view cl);
     static void set_default_read_consistency_level(std::string_view cl);
+    static void set_alternator_replication_factor(int rf);
     static db::consistency_level default_write_consistency_level;
     static db::consistency_level default_write_consistency_level_lwt;
     static db::consistency_level default_read_consistency_level;
