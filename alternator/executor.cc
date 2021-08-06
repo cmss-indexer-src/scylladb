@@ -3206,7 +3206,7 @@ static db::consistency_level get_read_consistency(const rjson::value& request) {
             throw api_error::validation("ConsistentRead flag must be a boolean");
         }
     }
-    return consistent_read ? db::consistency_level::LOCAL_QUORUM : executor::default_read_consistency_level;
+    return consistent_read ? db::consistency_level::QUORUM : executor::default_read_consistency_level;
 }
 
 // describe_item() wraps the result of describe_single_item() by a map
