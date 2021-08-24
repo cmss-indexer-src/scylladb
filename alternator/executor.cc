@@ -1006,6 +1006,10 @@ static future<executor::request_return_type> create_table_on_shard0(tracing::tra
     std::vector<schema_builder> view_builders;
     std::vector<sstring> where_clauses;
     std::unordered_set<std::string> index_names;
+    static const std::unordered_set<std::string_view> legal_projection_type = {
+        "KEYS_ONLY", "INCLUDE", "ALL",
+    };
+    std::vector<sstring> projection_types;
     if (gsi) {
         if (!gsi->IsArray()) {
             co_return api_error::validation("GlobalSecondaryIndexes must be an array.");
@@ -1022,8 +1026,34 @@ static future<executor::request_return_type> create_table_on_shard0(tracing::tra
             }
             std::string vname(view_name(table_name, index_name));
             elogger.trace("Adding GSI {}", index_name);
-            // FIXME: read and handle "Projection" parameter. This will
-            // require the MV code to copy just parts of the attrs map.
+            std::vector<sstring> include_columns;
+            const rjson::value* projection = rjson::find(g, "Projection");
+            if (projection) {
+                const rjson::value* projection_type = rjson::find(*projection, "ProjectionType");
+                if (!projection_type || !projection_type->IsString()) {
+                    return make_ready_future<request_return_type>(api_error::validation(format("GlobalSecondaryIndexes ProjectionType must be a string. Instead of {}.",*projection)));
+                }
+                sstring pt = projection_type->GetString();
+                if (!legal_projection_type.contains(pt)) {
+                    return make_ready_future<request_return_type>(api_error::validation(format("GlobalSecondaryIndexes ProjectionType must be one of 'KEYS_ONLY', 'INCLUDE', 'ALL'. Instead of {}", pt)));
+                }
+                if (pt == "INCLUDE") {
+                    const rjson::value* nonkeyattributes = rjson::find(*projection, "NonKeyAttributes");
+                    if (!nonkeyattributes) {
+                        co_return api_error::validation(format("If Projection type INCLUDE is specified, some non-key attributes to include in the projection must be specified as well"));
+                    }
+                    if (!nonkeyattributes->IsArray()) {
+                        co_return api_error::validation(format("GlobalSecondaryIndexes NonKeyAttributes must be an array. Instead of {}.",*nonkeyattributes));
+                    }
+                    for (const rjson::value& nka : nonkeyattributes->GetArray()) {
+                        include_columns.push_back(std::move(nka.GetString()));
+                    }
+                }
+                projection_types.push_back(std::move(pt));
+            } else {
+                projection_types.push_back("ALL");
+            }
+
             schema_builder view_builder(keyspace_name, vname);
             auto [view_hash_key, view_range_key] = parse_key_schema(g);
             if (partial_schema->get_column_definition(to_bytes(view_hash_key)) == nullptr) {
@@ -1053,6 +1083,13 @@ static future<executor::request_return_type> create_table_on_shard0(tracing::tra
             }
             if  (!range_key.empty() && range_key != view_hash_key && range_key != view_range_key) {
                 add_column(view_builder, range_key, attribute_definitions, column_kind::clustering_key);
+            }
+            // Add include columns to the view.
+            for (const auto& include_column : include_columns) {
+                if (include_column != view_hash_key && include_column != view_range_key) {
+                    add_column(builder, include_column, attribute_definitions, column_kind::regular_column);
+                    add_column(view_builder, include_column, attribute_definitions, column_kind::regular_column);
+                }
             }
             sstring where_clause = format("{} IS NOT NULL", cql3::util::maybe_quote(view_hash_key));
             if (!view_range_key.empty()) {
@@ -1084,8 +1121,32 @@ static future<executor::request_return_type> create_table_on_shard0(tracing::tra
             if (range_key.empty()) {
                 co_return api_error::validation("LocalSecondaryIndex requires that the base table have a range key");
             }
-            // FIXME: read and handle "Projection" parameter. This will
-            // require the MV code to copy just parts of the attrs map.
+            // Read and handle "Projection" parameter.
+            std::vector<sstring> include_columns;
+            const rjson::value* projection = rjson::find(l, "Projection");
+            if (projection) {
+                const rjson::value* projection_type = rjson::find(*projection, "ProjectionType");
+                if (!projection_type || !projection_type->IsString()) {
+                    return make_ready_future<request_return_type>(api_error::validation(format("LocalSecondaryIndexes ProjectionType must be a string. Instead of {}.",*projection)));
+                }
+                sstring pt = projection_type->GetString();
+                if (!legal_projection_type.contains(pt)) {
+                    return make_ready_future<request_return_type>(api_error::validation(format("LocalSecondaryIndexes ProjectionType must be one of 'KEYS_ONLY', 'INCLUDE', 'ALL'. Instead of {}", pt)));
+                }
+                if (pt == "INCLUDE") {
+                    const rjson::value* nonkeyattributes = rjson::find(*projection, "NonKeyAttributes");
+                    if (!nonkeyattributes || !nonkeyattributes->IsArray()) {
+                        return make_ready_future<request_return_type>(api_error::validation(format("LocalSecondaryIndexes NonKeyAttributes must be an array. Instead of {}.",*nonkeyattributes)));
+                    }
+                    for (const rjson::value& nka : nonkeyattributes->GetArray()) {
+                        include_columns.push_back(std::move(nka.GetString()));
+                    }
+                }
+                projection_types.push_back(std::move(pt));
+            } else {
+                projection_types.push_back("ALL");
+            }
+
             schema_builder view_builder(keyspace_name, vname);
             auto [view_hash_key, view_range_key] = parse_key_schema(l);
             if (view_hash_key != hash_key) {
@@ -1108,10 +1169,14 @@ static future<executor::request_return_type> create_table_on_shard0(tracing::tra
             if  (!range_key.empty() && view_range_key != range_key) {
                 add_column(view_builder, range_key, attribute_definitions, column_kind::clustering_key);
             }
-            view_builder.with_column(bytes(executor::ATTRS_COLUMN_NAME), attrs_type(), column_kind::regular_column);
-            // Note above we don't need to add virtual columns, as all
-            // base columns were copied to view. TODO: reconsider the need
-            // for virtual columns when we support Projection.
+            // Add include columns to the view.
+            for (const auto& include_column : include_columns) {
+                if (include_column != view_hash_key && include_column != view_range_key && include_column != range_key) {
+                    add_column(builder, include_column, attribute_definitions, column_kind::regular_column);
+                    add_column(view_builder, include_column, attribute_definitions, column_kind::regular_column);
+                }
+            }
+
             sstring where_clause = format("{} IS NOT NULL", cql3::util::maybe_quote(view_hash_key));
             if (!view_range_key.empty()) {
                 where_clause = format("{} AND {} IS NOT NULL", where_clause,
@@ -1153,19 +1218,26 @@ static future<executor::request_return_type> create_table_on_shard0(tracing::tra
 
     schema_ptr schema = builder.build();
     auto where_clause_it = where_clauses.begin();
+    auto projection_types_it = projection_types.begin();
     for (auto& view_builder : view_builders) {
-        // Note below we don't need to add virtual columns, as all
-        // base columns were copied to view. TODO: reconsider the need
-        // for virtual columns when we support Projection.
         for (const column_definition& regular_cdef : schema->regular_columns()) {
             if (!view_builder.has_column(*cql3::to_identifier(regular_cdef))) {
-                view_builder.with_column(regular_cdef.name(), regular_cdef.type, column_kind::regular_column);
+                if (*projection_types_it == "ALL") {
+                    // There's no need to add virtual columns here, as all
+                    // base columns were copied to view.
+                    view_builder.with_column(regular_cdef.name(), regular_cdef.type, column_kind::regular_column);
+                }else {
+                    // Fixme: for columns that were not copied to view, we should add them as virtual columns.
+                    // view_builder.with_column(regular_cdef.name(), map_type_impl::get_instance(utf8_type, empty_type, true), column_kind::regular_column, column_view_virtual::yes);
+                    elogger.warn("For columns that were not copied to view, we should add them as virtual columns.");
+                }
             }
         }
-        const bool include_all_columns = true;
+        const bool include_all_columns = (*projection_types_it == "ALL");
         view_builder.with_view_info(*schema, include_all_columns, *where_clause_it);
         view_builder.add_extension(db::tags_extension::NAME, ::make_shared<db::tags_extension>());
         ++where_clause_it;
+        ++projection_types_it;
     }
 
     // FIXME: the following needs to be in a loop. If mm.announce() below
@@ -3793,7 +3865,7 @@ static future<executor::request_return_type> do_query(service::storage_proxy& pr
     }
 
     auto regular_columns = boost::copy_range<query::column_id_vector>(
-            schema->regular_columns() | boost::adaptors::transformed([] (const column_definition& cdef) { return cdef.id; }));
+            schema->regular_columns() | boost::adaptors::filtered([] (const column_definition& cdef) { return !cdef.is_view_virtual();}) | boost::adaptors::transformed([] (const column_definition& cdef) { return cdef.id; }));
     auto static_columns = boost::copy_range<query::column_id_vector>(
             schema->static_columns() | boost::adaptors::transformed([] (const column_definition& cdef) { return cdef.id; }));
     auto selection = cql3::selection::selection::wildcard(schema);
