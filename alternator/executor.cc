@@ -847,6 +847,9 @@ void executor::set_default_write_consistency_level(std::string_view value){
         validate_legal_write_consistency_level(value);
         default_write_consistency_level = parse_consistency_level(value);
         default_write_consistency_level_lwt = parse_consistency_level_lwt(value);
+        if (default_write_consistency_level != db::consistency_level::LOCAL_QUORUM) {
+            elogger.warn("Changing the default write consistency level may affect data reliability and service availability. Please make sure you know what the correct configuration is.");
+        }
     }
 }
 
@@ -857,6 +860,9 @@ void executor::set_default_read_consistency_level(std::string_view value){
     }else{
         validate_legal_read_consistency_level(value);
         default_read_consistency_level = parse_consistency_level(value);
+        if (default_read_consistency_level != db::consistency_level::LOCAL_ONE) {
+            elogger.warn("Changing the default read consistency level may affect data reliability and service availability. Please make sure you know what the correct configuration is.");
+        }
     }
 }
 
@@ -3274,7 +3280,17 @@ static db::consistency_level get_read_consistency(const rjson::value& request) {
             throw api_error::validation("ConsistentRead flag must be a boolean");
         }
     }
-    return consistent_read ? db::consistency_level::QUORUM : executor::default_read_consistency_level;
+    if (executor::default_write_consistency_level == db::consistency_level::QUORUM) {
+        return consistent_read ? db::consistency_level::QUORUM : executor::default_read_consistency_level;
+    } else if (executor::default_write_consistency_level == db::consistency_level::LOCAL_QUORUM) {
+        return consistent_read ? db::consistency_level::LOCAL_QUORUM : executor::default_read_consistency_level;
+    } else {
+        // FIXME: without considering the cluster replication factor and the
+        // number of data centers, it is hard to set the read consistency level
+        // to ensure strong consistent reads when write consistency level is
+        // not QUORUM or LOCAL_QUORUM.
+        throw api_error::validation("Consistent reads are not allowed when alternator-write-consistency-level is not QUORUM or LOCAL_QUORUM.");
+    }
 }
 
 // describe_item() wraps the result of describe_single_item() by a map
@@ -3978,10 +3994,9 @@ future<executor::request_return_type> executor::scan(client_state& client_state,
     rjson::value* exclusive_start_key = rjson::find(request, "ExclusiveStartKey");
 
     db::consistency_level cl = get_read_consistency(request);
-    if (table_type == table_or_view_type::gsi && cl != db::consistency_level::ONE) {
-        cl = db::consistency_level::ONE;
-        //return make_ready_future<request_return_type>(api_error::validation(
-        //        "Consistent reads are not allowed on global indexes (GSI)"));
+    if (table_type == table_or_view_type::gsi && cl != executor::default_read_consistency_level) {
+        return make_ready_future<request_return_type>(api_error::validation(
+                "Consistent reads are not allowed on global indexes (GSI)"));
     }
     rjson::value* limit_json = rjson::find(request, "Limit");
     uint32_t limit = limit_json ? limit_json->GetUint64() : std::numeric_limits<uint32_t>::max();
@@ -4440,10 +4455,9 @@ future<executor::request_return_type> executor::query(client_state& client_state
 
     rjson::value* exclusive_start_key = rjson::find(request, "ExclusiveStartKey");
     db::consistency_level cl = get_read_consistency(request);
-    if (table_type == table_or_view_type::gsi && cl != db::consistency_level::ONE) {
-        cl = db::consistency_level::ONE;
-        //return make_ready_future<request_return_type>(api_error::validation(
-        //        "Consistent reads are not allowed on global indexes (GSI)"));
+    if (table_type == table_or_view_type::gsi && cl != executor::default_read_consistency_level) {
+        return make_ready_future<request_return_type>(api_error::validation(
+                "Consistent reads are not allowed on global indexes (GSI)"));
     }
     rjson::value* limit_json = rjson::find(request, "Limit");
     uint32_t limit = limit_json ? limit_json->GetUint64() : std::numeric_limits<uint32_t>::max();
