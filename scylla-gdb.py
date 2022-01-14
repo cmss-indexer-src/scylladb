@@ -165,6 +165,18 @@ class intrusive_slist:
 
         if link is not None:
             self.link_offset = get_field_offset(self.node_type, link)
+        # Workaround for the fact that gdb seems to think that a slist entry
+        # has only one template argument, while it has several more. Cause not known.
+        for field in self.node_type.fields():
+            if str(field.type).startswith("boost::intrusive::slist_member_hook"):
+                self.link_offset = int(field.bitpos / 8)
+                return
+
+        member_hook = get_template_arg_with_prefix(list_type, "boost::intrusive::member_hook")
+        if not member_hook:
+            member_hook = get_template_arg_with_prefix(list_type, "struct boost::intrusive::member_hook")
+        if member_hook:
+            self.link_offset = member_hook.template_argument(2).cast(self.size_t)
         else:
             member_hook = get_template_arg_with_prefix(list_type, "struct boost::intrusive::member_hook")
             if member_hook:
