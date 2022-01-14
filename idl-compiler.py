@@ -1260,10 +1260,7 @@ def handle_visitors_nodes(cls, cout, variant_node=False, classes=[]):
     members = get_members(cls)
     if classes:
         base_state_name = "__".join(classes)
-        if variant_node:
-            parents = "__".join(classes[:-1])
-        else:
-            parents = "__".join(classes[:-1])
+        parents = "__".join(classes[:-1])
         current_name = classes[-1]
     else:
         base_state_name = cls.name

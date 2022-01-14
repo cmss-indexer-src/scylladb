@@ -48,7 +48,7 @@ def test_deeply_nested_put(dynamodb, test_table):
     # responded with a comprehensible message - it can be either
     # a success report or an error - both are acceptable as long as
     # the oversized message did not make the server crash.
-    response = requests.post(req.url, headers=req.headers, data=req.body, verify=False)
+    response = requests.post(req.url, headers=req.headers, data=req.body, verify=True)
     print(response, response.text)
 
     # If the PutItem request above failed, the deeply nested item
@@ -114,7 +114,7 @@ def test_too_large_request_chunked(dynamodb, test_table):
         '{"TableName": "' + test_table.name + '", ' + spaces + '"Item": {"p": {"S": "x"}, "c": {"S": "x"}}}')
     def generator(s):
         yield s
-    response = requests.post(req.url, headers=req.headers, data=generator(req.body), verify=False)
+    response = requests.post(req.url, headers=req.headers, data=generator(req.body), verify=True)
     # In issue #8196, Alternator did not recognize the request is too long
     # because it uses chunked encoding instead of Content-Length, so the
     # request succeeded, and the status_code was 200 instead of 413.
@@ -127,7 +127,7 @@ def test_too_large_request_content_length(dynamodb, test_table):
     spaces = ' ' * (17 * 1024 * 1024)
     req = get_signed_request(dynamodb, 'PutItem',
         '{"TableName": "' + test_table.name + '", ' + spaces + '"Item": {"p": {"S": "x"}, "c": {"S": "x"}}}')
-    response = requests.post(req.url, headers=req.headers, data=req.body, verify=False)
+    response = requests.post(req.url, headers=req.headers, data=req.body, verify=True)
     # In issue #8195, Alternator closed the connection early, causing the
     # library to incorrectly throw an exception (Broken Pipe) instead noticing
     # the error code 413 which the server did send.
@@ -142,7 +142,7 @@ def test_incorrect_json(dynamodb, test_table):
     validate_resp = lambda t: "SerializationException" in t or "ValidationException" in t or "Page Not Found" in t
     for i in range(len(correct_req)):
         req = get_signed_request(dynamodb, 'PutItem', correct_req[:i])
-        response = requests.post(req.url, headers=req.headers, data=req.body, verify=False)
+        response = requests.post(req.url, headers=req.headers, data=req.body, verify=True)
         assert validate_resp(response.text)
 
     incorrect_reqs = [
@@ -151,14 +151,14 @@ def test_incorrect_json(dynamodb, test_table):
     ]
     for incorrect_req in incorrect_reqs:
         req = get_signed_request(dynamodb, 'PutItem', incorrect_req)
-        response = requests.post(req.url, headers=req.headers, data=req.body, verify=False)
+        response = requests.post(req.url, headers=req.headers, data=req.body, verify=True)
         assert validate_resp(response.text)
 
 # Test that the value returned by PutItem is always a JSON object, not an empty string (see #6568)
 def test_put_item_return_type(dynamodb, test_table):
     payload = '{"TableName": "' + test_table.name + '", "Item": {"p": {"S": "x"}, "c": {"S": "x"}}}'
     req = get_signed_request(dynamodb, 'PutItem', payload)
-    response = requests.post(req.url, headers=req.headers, data=req.body, verify=False)
+    response = requests.post(req.url, headers=req.headers, data=req.body, verify=True)
     assert response.text
     # json::loads throws on invalid input
     json.loads(response.text)
@@ -168,10 +168,10 @@ def test_tags_return_empty_body(dynamodb, test_table):
     descr = test_table.meta.client.describe_table(TableName=test_table.name)['Table']
     arn =  descr['TableArn']
     req = get_signed_request(dynamodb, 'TagResource', '{"ResourceArn": "' + arn + '", "Tags": [{"Key": "k", "Value": "v"}]}')
-    response = requests.post(req.url, headers=req.headers, data=req.body, verify=False)
+    response = requests.post(req.url, headers=req.headers, data=req.body, verify=True)
     assert not response.text
     req = get_signed_request(dynamodb, 'UntagResource', '{"ResourceArn": "' + arn + '", "TagKeys": ["k"]}')
-    response = requests.post(req.url, headers=req.headers, data=req.body, verify=False)
+    response = requests.post(req.url, headers=req.headers, data=req.body, verify=True)
     assert not response.text
 
 # Test that incorrect number values are detected
@@ -179,7 +179,7 @@ def test_incorrect_numbers(dynamodb, test_table):
     for incorrect in ["NaN", "Infinity", "-Infinity", "-NaN", "dog", "-dog"]:
         payload = '{"TableName": "' + test_table.name + '", "Item": {"p": {"S": "x"}, "c": {"S": "x"}, "v": {"N": "' + incorrect + '"}}}'
         req = get_signed_request(dynamodb, 'PutItem', payload)
-        response = requests.post(req.url, headers=req.headers, data=req.body, verify=False)
+        response = requests.post(req.url, headers=req.headers, data=req.body, verify=True)
         assert "ValidationException" in response.text and "numeric" in response.text
 
 # Although the DynamoDB API responses are JSON, additional conventions apply

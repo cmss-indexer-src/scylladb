@@ -1106,11 +1106,11 @@ static future<executor::request_return_type> create_table_on_shard0(tracing::tra
             if (projection) {
                 const rjson::value* projection_type = rjson::find(*projection, "ProjectionType");
                 if (!projection_type || !projection_type->IsString()) {
-                    return make_ready_future<request_return_type>(api_error::validation(format("GlobalSecondaryIndexes ProjectionType must be a string. Instead of {}.",*projection)));
+                    co_return api_error::validation(format("GlobalSecondaryIndexes ProjectionType must be a string. Instead of {}.",*projection));
                 }
                 sstring pt = projection_type->GetString();
                 if (!legal_projection_type.contains(pt)) {
-                    return make_ready_future<request_return_type>(api_error::validation(format("GlobalSecondaryIndexes ProjectionType must be one of 'KEYS_ONLY', 'INCLUDE', 'ALL'. Instead of {}", pt)));
+                    co_return api_error::validation(format("GlobalSecondaryIndexes ProjectionType must be one of 'KEYS_ONLY', 'INCLUDE', 'ALL'. Instead of {}", pt));
                 }
                 if (pt == "INCLUDE") {
                     const rjson::value* nonkeyattributes = rjson::find(*projection, "NonKeyAttributes");
@@ -1202,16 +1202,16 @@ static future<executor::request_return_type> create_table_on_shard0(tracing::tra
             if (projection) {
                 const rjson::value* projection_type = rjson::find(*projection, "ProjectionType");
                 if (!projection_type || !projection_type->IsString()) {
-                    return make_ready_future<request_return_type>(api_error::validation(format("LocalSecondaryIndexes ProjectionType must be a string. Instead of {}.",*projection)));
+                    co_return api_error::validation(format("LocalSecondaryIndexes ProjectionType must be a string. Instead of {}.",*projection));
                 }
                 sstring pt = projection_type->GetString();
                 if (!legal_projection_type.contains(pt)) {
-                    return make_ready_future<request_return_type>(api_error::validation(format("LocalSecondaryIndexes ProjectionType must be one of 'KEYS_ONLY', 'INCLUDE', 'ALL'. Instead of {}", pt)));
+                    co_return api_error::validation(format("LocalSecondaryIndexes ProjectionType must be one of 'KEYS_ONLY', 'INCLUDE', 'ALL'. Instead of {}", pt));
                 }
                 if (pt == "INCLUDE") {
                     const rjson::value* nonkeyattributes = rjson::find(*projection, "NonKeyAttributes");
                     if (!nonkeyattributes || !nonkeyattributes->IsArray()) {
-                        return make_ready_future<request_return_type>(api_error::validation(format("LocalSecondaryIndexes NonKeyAttributes must be an array. Instead of {}.",*nonkeyattributes)));
+                        co_return api_error::validation(format("LocalSecondaryIndexes NonKeyAttributes must be an array. Instead of {}.",*nonkeyattributes));
                     }
                     for (const rjson::value& nka : nonkeyattributes->GetArray()) {
                         include_columns.push_back(std::move(nka.GetString()));
@@ -4668,7 +4668,7 @@ future<executor::request_return_type> executor::describe_continuous_backups(clie
 static future<std::vector<mutation>> create_keyspace(std::string_view keyspace_name, service::storage_proxy& sp, service::migration_manager& mm, gms::gossiper& gossiper, api::timestamp_type ts) {
     sstring keyspace_name_str(keyspace_name);
     int endpoint_count = gossiper.get_endpoint_states().size();
-    int rf = alternator_replication_factor;
+    int rf = executor::alternator_replication_factor;
     if (endpoint_count < rf) {
         rf = 1;
         elogger.warn("Creating keyspace '{}' for Alternator with unsafe RF={} because cluster only has {} nodes.",
