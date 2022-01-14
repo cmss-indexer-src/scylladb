@@ -42,7 +42,7 @@ def test_expired_signature(dynamodb, test_table):
                'X-Amz-Target': 'DynamoDB_20120810.DescribeEndpoints',
                'Authorization': 'AWS4-HMAC-SHA256 Credential=alternator/2/3/4/aws4_request SignedHeaders=x-amz-date;host Signature=123'
     }
-    response = requests.post(url, headers=headers, verify=False)
+    response = requests.post(url, headers=headers, verify=True)
     assert not response.ok
     assert "InvalidSignatureException" in response.text and "Signature expired" in response.text
 
@@ -55,7 +55,7 @@ def test_no_authorization_header(dynamodb, test_table):
                'X-Amz-Date': '20170101T010101Z',
                'X-Amz-Target': 'DynamoDB_20120810.DescribeEndpoints',
     }
-    response = requests.post(url, headers=headers, verify=False)
+    response = requests.post(url, headers=headers, verify=True)
     assert not response.ok
     assert "MissingAuthenticationTokenException" in response.text
 
@@ -69,7 +69,7 @@ def test_signature_too_futuristic(dynamodb, test_table):
                'X-Amz-Target': 'DynamoDB_20120810.DescribeEndpoints',
                'Authorization': 'AWS4-HMAC-SHA256 Credential=alternator/2/3/4/aws4_request SignedHeaders=x-amz-date;host Signature=123'
     }
-    response = requests.post(url, headers=headers, verify=False)
+    response = requests.post(url, headers=headers, verify=True)
     assert not response.ok
     assert "InvalidSignatureException" in response.text and "Signature not yet current" in response.text
 

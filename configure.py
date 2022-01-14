@@ -141,17 +141,17 @@ def try_compile_and_link(compiler, source='', flags=[], verbose=False):
         try:
             sfile.file.write(bytes(source, 'utf-8'))
             sfile.file.flush()
-            ret = subprocess.run([compiler, '-x', 'c++', '-o', ofile, sfile.name] + args.user_cflags.split() + flags,
+            ret = subprocess.run([compiler, '-x', 'c++', '-o', ofile.name, sfile.name] + args.user_cflags.split() + flags,
                                  capture_output=True)
             if verbose:
-                print(f"Compilation failed: {compiler} -x c++ -o {ofile} {sfile.name} {args.user_cflags} {flags}")
+                print(f"Compilation failed: {compiler} -x c++ -o {ofile.name} {sfile.name} {args.user_cflags} {flags}")
                 print(source)
                 print(ret.stdout.decode('utf-8'))
                 print(ret.stderr.decode('utf-8'))
             return ret.returncode == 0
         finally:
-            if os.path.exists(ofile):
-                os.unlink(ofile)
+            if os.path.exists(ofile.name):
+                os.unlink(ofile.name)
 
 
 def flag_supported(flag, compiler):
