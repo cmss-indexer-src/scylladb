@@ -1272,8 +1272,9 @@ static future<executor::request_return_type> create_table_on_shard0(tracing::tra
                     // base columns were copied to view.
                     view_builder.with_column(regular_cdef.name(), regular_cdef.type, column_kind::regular_column);
                 }else {
-                    // For columns that were not copied to view, we should add them as virtual columns.
-                    view_builder.with_column(regular_cdef.name(), map_type_impl::get_instance(utf8_type, empty_type, true), column_kind::regular_column, column_view_virtual::yes);
+                    // Fixme: for columns that were not copied to view, we should add them as virtual columns.
+                    // view_builder.with_column(regular_cdef.name(), map_type_impl::get_instance(utf8_type, empty_type, true), column_kind::regular_column, column_view_virtual::yes);
+                    elogger.warn("For columns that were not copied to view, we should add them as virtual columns.");
                 }
             }
         }
@@ -3895,7 +3896,7 @@ static future<executor::request_return_type> do_query(service::storage_proxy& pr
     }
 
     auto regular_columns = boost::copy_range<query::column_id_vector>(
-            schema->regular_columns() | boost::adaptors::filtered([] (const column_definition& cdef) { return !cdef.is_view_virtual();}) | boost::adaptors::transformed([] (const column_definition& cdef) { return cdef.id; }));
+            schema->regular_columns() | boost::adaptors::transformed([] (const column_definition& cdef) { return cdef.id; }));
     auto static_columns = boost::copy_range<query::column_id_vector>(
             schema->static_columns() | boost::adaptors::transformed([] (const column_definition& cdef) { return cdef.id; }));
     auto selection = cql3::selection::selection::wildcard(schema);
