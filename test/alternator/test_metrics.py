@@ -29,7 +29,7 @@ import time
 from contextlib import contextmanager
 from botocore.exceptions import ClientError
 
-from alternator_util import random_string, new_test_table, is_aws
+from util import random_string, new_test_table, is_aws
 
 # Fixture for checking if we are able to test Scylla metrics. Scylla metrics
 # are not available on AWS (of course), but may also not be available for

@@ -13,7 +13,8 @@ import pytest
 import boto3
 import requests
 import re
-from alternator_util import create_test_table, is_aws
+from util import create_test_table, is_aws
+from urllib.parse import urlparse
 
 # When tests are run with HTTPS, the server often won't have its SSL
 # certificate signed by a known authority. So we will disable certificate
