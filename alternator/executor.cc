@@ -763,6 +763,13 @@ void rmw_operation::set_default_write_isolation(std::string_view value) {
     default_write_isolation = parse_write_isolation(value);
 }
 
+// Whatever value we set here will be overriden by set_alternator_replication_factor()
+int executor::alternator_replication_factor = 3;
+
+void executor::set_alternator_replication_factor(int rf) {
+    alternator_replication_factor = rf;
+}
+
 static void validate_legal_write_consistency_level(std::string_view value) {
     static const std::unordered_set<std::string_view> allowed_write_consistency_level = {
         "ANY","ONE","TWO","THREE","QUORUM","ALL","LOCAL_QUORUM","EACH_QUORUM","SERIAL","LOCAL_SERIAL","LOCAL_ONE",
@@ -838,6 +845,7 @@ static db::consistency_level parse_consistency_level_lwt(std::string_view value)
 db::consistency_level executor::default_write_consistency_level = db::consistency_level::LOCAL_QUORUM;
 db::consistency_level executor::default_write_consistency_level_lwt = db::consistency_level::LOCAL_SERIAL;
 db::consistency_level executor::default_read_consistency_level = db::consistency_level::LOCAL_ONE;
+db::consistency_level executor::default_query_consistency_level = db::consistency_level::TWO;
 
 void executor::set_default_write_consistency_level(std::string_view value){
     if (value.empty()){
@@ -862,6 +870,18 @@ void executor::set_default_read_consistency_level(std::string_view value){
         default_read_consistency_level = parse_consistency_level(value);
         if (default_read_consistency_level != db::consistency_level::LOCAL_ONE) {
             elogger.warn("Changing the default read consistency level may affect data reliability and service availability. Please make sure you know what the correct configuration is.");
+        }
+    }
+}
+
+void executor::set_default_query_consistency_level(std::string_view value) {
+    if (value.empty()) {
+        elogger.warn("Without providing query consistency level,using the default CL='{}' for Alternator query request.", default_query_consistency_level);
+    } else {
+        validate_legal_read_consistency_level(value);
+        default_query_consistency_level = parse_consistency_level(value);
+        if (default_query_consistency_level != db::consistency_level::TWO) {
+            elogger.warn("Changing the default query consistency level may affect data reliability and service availability. Please make sure you know what the correct configuration is.");
         }
     }
 }
@@ -3282,9 +3302,13 @@ static db::consistency_level get_read_consistency(const rjson::value& request) {
         }
     }
     if (executor::default_write_consistency_level == db::consistency_level::QUORUM) {
-        return consistent_read ? db::consistency_level::QUORUM : executor::default_read_consistency_level;
+        if (alternator_replication_factor == 2) {
+            return consistent_read ? db::consistency_level::THREE : executor::default_query_consistency_level;
+        } else {
+            return consistent_read ? db::consistency_level::QUORUM : executor::default_query_consistency_level;
+        }
     } else if (executor::default_write_consistency_level == db::consistency_level::LOCAL_QUORUM) {
-        return consistent_read ? db::consistency_level::LOCAL_QUORUM : executor::default_read_consistency_level;
+        return consistent_read ? db::consistency_level::LOCAL_QUORUM : db::consistency_level::LOCAL_ONE;
     } else {
         // FIXME: without considering the cluster replication factor and the
         // number of data centers, it is hard to set the read consistency level
@@ -3323,7 +3347,7 @@ future<executor::request_return_type> executor::get_item(client_state& client_st
     tracing::add_table_name(trace_state, schema->ks_name(), schema->cf_name());
 
     rjson::value& query_key = request["Key"];
-    db::consistency_level cl = get_read_consistency(request);
+    db::consistency_level cl = executor::default_read_consistency_level;
 
     partition_key pk = pk_from_json(query_key, schema);
     dht::partition_range_vector partition_ranges{dht::partition_range(dht::decorate_key(*schema, pk))};
@@ -3995,7 +4019,7 @@ future<executor::request_return_type> executor::scan(client_state& client_state,
     rjson::value* exclusive_start_key = rjson::find(request, "ExclusiveStartKey");
 
     db::consistency_level cl = get_read_consistency(request);
-    if (table_type == table_or_view_type::gsi && cl != executor::default_read_consistency_level) {
+    if (table_type == table_or_view_type::gsi && cl != executor::default_query_consistency_level) {
         return make_ready_future<request_return_type>(api_error::validation(
                 "Consistent reads are not allowed on global indexes (GSI)"));
     }
@@ -4456,7 +4480,7 @@ future<executor::request_return_type> executor::query(client_state& client_state
 
     rjson::value* exclusive_start_key = rjson::find(request, "ExclusiveStartKey");
     db::consistency_level cl = get_read_consistency(request);
-    if (table_type == table_or_view_type::gsi && cl != executor::default_read_consistency_level) {
+    if (table_type == table_or_view_type::gsi && cl != executor::default_query_consistency_level) {
         return make_ready_future<request_return_type>(api_error::validation(
                 "Consistent reads are not allowed on global indexes (GSI)"));
     }
@@ -4606,11 +4630,6 @@ future<executor::request_return_type> executor::describe_endpoints(client_state&
     return make_ready_future<executor::request_return_type>(make_jsonable(std::move(response)));
 }
 
-int alternator_replication_factor = 3;
-
-void executor::set_alternator_replication_factor(int rf){
-    alternator_replication_factor = rf;
-}
 
 static std::map<sstring, sstring> get_network_topology_options(service::storage_proxy& sp, gms::gossiper& gossiper, int rf) {
     std::map<sstring, sstring> options;

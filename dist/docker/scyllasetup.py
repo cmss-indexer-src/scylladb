@@ -20,6 +20,7 @@ class ScyllaSetup:
         self._alternatorWriteIsolation = arguments.alternatorWriteIsolation
         self._alternatorWriteCL = arguments.alternatorWriteCL
         self._alternatorReadCL = arguments.alternatorReadCL
+        self._alternatorQueryCL = arguments.alternatorQueryCL
         self._alternatorRF = arguments.alternatorRF
         self._smp = arguments.smp
         self._memory = arguments.memory
@@ -148,6 +149,9 @@ class ScyllaSetup:
 
         if self._alternatorReadCL is not None:
             args += ["--alternator-read-consistency-level %s" % self._alternatorReadCL]
+
+        if self._alternatorQueryCL is not None:
+            args += ["--alternator-query-consistency-level %s" % self._alternatorQueryCL]
 
         if self._alternatorRF is not None:
             args += ["--alternator-replication-factor %d" % self._alternatorRF]
