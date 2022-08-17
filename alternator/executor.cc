@@ -3302,13 +3302,13 @@ static db::consistency_level get_read_consistency(const rjson::value& request) {
         }
     }
     if (executor::default_write_consistency_level == db::consistency_level::QUORUM) {
-        if (alternator_replication_factor == 2) {
+        if (executor::alternator_replication_factor == 2) {
             return consistent_read ? db::consistency_level::THREE : executor::default_query_consistency_level;
         } else {
             return consistent_read ? db::consistency_level::QUORUM : executor::default_query_consistency_level;
         }
     } else if (executor::default_write_consistency_level == db::consistency_level::LOCAL_QUORUM) {
-        return consistent_read ? db::consistency_level::LOCAL_QUORUM : db::consistency_level::LOCAL_ONE;
+        return consistent_read ? db::consistency_level::LOCAL_QUORUM : executor::default_query_consistency_level;
     } else {
         // FIXME: without considering the cluster replication factor and the
         // number of data centers, it is hard to set the read consistency level

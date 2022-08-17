@@ -226,10 +226,10 @@ public:
     static db::consistency_level default_write_consistency_level_lwt;
     static db::consistency_level default_read_consistency_level;
     static db::consistency_level default_query_consistency_level;
+    static int alternator_replication_factor;
 private:
     static thread_local utils::updateable_value<uint32_t> s_default_timeout_in_ms;
     static db::timeout_clock::duration s_default_timeout;
-    static int alternator_replication_factor;
 public:
     static schema_ptr find_table(service::storage_proxy&, const rjson::value& request);
 
