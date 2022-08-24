@@ -4484,6 +4484,7 @@ future<executor::request_return_type> executor::query(client_state& client_state
         return make_ready_future<request_return_type>(api_error::validation(
                 "Consistent reads are not allowed on global indexes (GSI)"));
     }
+
     rjson::value* limit_json = rjson::find(request, "Limit");
     uint32_t limit = limit_json ? limit_json->GetUint64() : std::numeric_limits<uint32_t>::max();
     if (limit <= 0) {
