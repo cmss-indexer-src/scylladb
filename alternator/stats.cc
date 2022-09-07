@@ -65,6 +65,8 @@ stats::stats() : api_operations{} {
             OPERATION_LATENCY(get_item_latency, "GetItem")
             OPERATION_LATENCY(delete_item_latency, "DeleteItem")
             OPERATION_LATENCY(update_item_latency, "UpdateItem")
+            OPERATION_LATENCY(query_latency, "Query")
+            OPERATION_LATENCY(scan_latency, "Scan")
             OPERATION(list_streams, "ListStreams")
             OPERATION(describe_stream, "DescribeStream")
             OPERATION(get_shard_iterator, "GetShardIterator")

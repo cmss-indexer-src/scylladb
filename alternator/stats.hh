@@ -70,6 +70,8 @@ public:
         utils::time_estimated_histogram get_item_latency;
         utils::time_estimated_histogram delete_item_latency;
         utils::time_estimated_histogram update_item_latency;
+        utils::time_estimated_histogram query_latency;
+        utils::time_estimated_histogram scan_latency;
         utils::time_estimated_histogram get_records_latency;
     } api_operations;
     // Miscellaneous event counters
