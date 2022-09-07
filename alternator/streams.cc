@@ -140,6 +140,7 @@ namespace alternator {
 future<alternator::executor::request_return_type> alternator::executor::list_streams(client_state& client_state, service_permit permit, rjson::value request) {
     _stats.api_operations.list_streams++;
 
+    auto start_time = std::chrono::steady_clock::now();
     auto limit = rjson::get_opt<int>(request, "Limit").value_or(std::numeric_limits<int>::max());
     auto streams_start = rjson::get_opt<stream_arn>(request, "ExclusiveStartStreamArn");
     auto table = find_table(_proxy, request);
@@ -212,6 +213,7 @@ future<alternator::executor::request_return_type> alternator::executor::list_str
         rjson::add(ret, "LastEvaluatedStreamArn", *last);
     }
 
+    _stats.api_operations.list_streams_latency.add(std::chrono::steady_clock::now() - start_time);
     return make_ready_future<executor::request_return_type>(make_jsonable(std::move(ret)));
 }
 
@@ -427,6 +429,7 @@ static constexpr auto dynamodb_streams_max_window = 24h;
 future<executor::request_return_type> executor::describe_stream(client_state& client_state, service_permit permit, rjson::value request) {
     _stats.api_operations.describe_stream++;
 
+    auto start_time = std::chrono::steady_clock::now();
     auto limit = rjson::get_opt<int>(request, "Limit").value_or(100); // according to spec
     auto ret = rjson::empty_object();
     auto stream_desc = rjson::empty_object();
@@ -498,7 +501,7 @@ future<executor::request_return_type> executor::describe_stream(client_state& cl
     // filter out cdc generations older than the table or now() - cdc::ttl (typically dynamodb_streams_max_window - 24h)
     auto low_ts = std::max(as_timepoint(schema->id()), db_clock::now() - ttl);
 
-    return _sdks.cdc_get_versioned_streams(low_ts, { normal_token_owners }).then([this, db, shard_start, limit, ret = std::move(ret), stream_desc = std::move(stream_desc)] (std::map<db_clock::time_point, cdc::streams_version> topologies) mutable {
+    return _sdks.cdc_get_versioned_streams(low_ts, { normal_token_owners }).then([this, db, start_time, shard_start, limit, ret = std::move(ret), stream_desc = std::move(stream_desc)] (std::map<db_clock::time_point, cdc::streams_version> topologies) mutable {
 
         auto e = topologies.end();
         auto prev = e;
@@ -612,7 +615,8 @@ future<executor::request_return_type> executor::describe_stream(client_state& cl
 
         rjson::add(stream_desc, "Shards", std::move(shards));
         rjson::add(ret, "StreamDescription", std::move(stream_desc));
-            
+
+        _stats.api_operations.describe_stream_latency.add(std::chrono::steady_clock::now() - start_time);
         return make_ready_future<executor::request_return_type>(make_jsonable(std::move(ret)));
     });
 }
@@ -707,7 +711,7 @@ namespace alternator {
 
 future<executor::request_return_type> executor::get_shard_iterator(client_state& client_state, service_permit permit, rjson::value request) {
     _stats.api_operations.get_shard_iterator++;
-
+    auto start_time = std::chrono::steady_clock::now();
     auto type = rjson::get<shard_iterator_type>(request, "ShardIteratorType");
     auto seq_num = rjson::get_opt<sequence_number>(request, "SequenceNumber");
     
@@ -766,6 +770,7 @@ future<executor::request_return_type> executor::get_shard_iterator(client_state&
     auto ret = rjson::empty_object();
     rjson::add(ret, "ShardIterator", iter);
 
+    _stats.api_operations.get_shard_iterator_latency.add(std::chrono::steady_clock::now() - start_time);;
     return make_ready_future<executor::request_return_type>(make_jsonable(std::move(ret)));
 }
 
