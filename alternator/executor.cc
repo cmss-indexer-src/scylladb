@@ -1641,7 +1641,7 @@ void executor::set_default_putitem_lwt_timeout(db::timeout_clock::duration timeo
 void executor::set_default_query_timeout(db::timeout_clock::duration timeout) {
     default_query_timeout = timeout;
 }
-db::timeout_clock::time_point executor::default_timeout(db::timeout_clock::duration timeout = executor::s_default_timeout) {
+db::timeout_clock::time_point executor::default_timeout(db::timeout_clock::duration timeout) {
     return db::timeout_clock::now() + timeout;
 }
         

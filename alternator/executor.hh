@@ -216,6 +216,7 @@ public:
     }
 
     static sstring table_name(const schema&);
+    static db::timeout_clock::time_point default_timeout();
     static db::timeout_clock::time_point default_timeout(db::timeout_clock::duration timeout);
     static void set_default_timeout(db::timeout_clock::duration timeout);
     static void set_default_getitem_timeout(db::timeout_clock::duration timeout);
@@ -230,7 +231,7 @@ public:
     static db::consistency_level default_write_consistency_level_lwt;
     static db::consistency_level default_read_consistency_level;
     static db::consistency_level default_query_consistency_level;
-private:
+
     static thread_local utils::updateable_value<uint32_t> s_default_timeout_in_ms;
     static db::timeout_clock::duration s_default_timeout;
     static db::timeout_clock::duration default_getitem_timeout;
