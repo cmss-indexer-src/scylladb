@@ -3943,7 +3943,7 @@ static future<executor::request_return_type> do_query(service::storage_proxy& pr
     }
 
     auto regular_columns = boost::copy_range<query::column_id_vector>(
-            schema->regular_columns() | boost::adaptors::transformed([] (const column_definition& cdef) { return cdef.id; }));
+            schema->regular_columns() | boost::adaptors::filtered([] (const column_definition& cdef) { return !cdef.is_view_virtual();}) | boost::adaptors::transformed([] (const column_definition& cdef) { return cdef.id; }));
     auto static_columns = boost::copy_range<query::column_id_vector>(
             schema->static_columns() | boost::adaptors::transformed([] (const column_definition& cdef) { return cdef.id; }));
     auto selection = cql3::selection::selection::wildcard(schema);
