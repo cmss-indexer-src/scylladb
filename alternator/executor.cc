@@ -882,7 +882,7 @@ void executor::set_default_getrecords_consistency_level(std::string_view value){
     }else{
         validate_legal_read_consistency_level(value);
         default_getrecords_consistency_level = parse_consistency_level(value);
-        if (default_records_consistency_level != db::consistency_level::QUORUM) {
+        if (default_getrecords_consistency_level != db::consistency_level::QUORUM) {
             elogger.warn("Changing the default getrecords consistency level may affect the accuracy of cdc streams. Please make sure you know what the correct configuration is.");
         }
     }
