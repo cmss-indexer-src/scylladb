@@ -788,7 +788,7 @@ static void validate_legal_read_consistency_level(std::string_view value) {
     };
     if (!allowed_read_consistency_level.contains(value))
     {
-        throw std::runtime_error(format("Invalid --alternator-read-consistency-level "
+        throw std::runtime_error(format("Invalid --alternator-read/getrecords-consistency-level "
                 "setting '{}'. Allowed values: {}.",
                 value, allowed_read_consistency_level));
     }
@@ -842,10 +842,11 @@ static db::consistency_level parse_consistency_level_lwt(std::string_view value)
 
 }
 
-db::consistency_level executor::default_write_consistency_level = db::consistency_level::LOCAL_QUORUM;
-db::consistency_level executor::default_write_consistency_level_lwt = db::consistency_level::LOCAL_SERIAL;
-db::consistency_level executor::default_read_consistency_level = db::consistency_level::LOCAL_ONE;
-db::consistency_level executor::default_query_consistency_level = db::consistency_level::TWO;
+db::consistency_level executor::default_write_consistency_level = db::consistency_level::QUORUM;
+db::consistency_level executor::default_write_consistency_level_lwt = db::consistency_level::SERIAL;
+db::consistency_level executor::default_getrecords_consistency_level = db::consistency_level::QUORUM;
+db::consistency_level executor::default_read_consistency_level = db::consistency_level::QUORUM;
+db::consistency_level executor::default_query_consistency_level = db::consistency_level::ONE;
 
 void executor::set_default_write_consistency_level(std::string_view value){
     if (value.empty()){
@@ -855,7 +856,7 @@ void executor::set_default_write_consistency_level(std::string_view value){
         validate_legal_write_consistency_level(value);
         default_write_consistency_level = parse_consistency_level(value);
         default_write_consistency_level_lwt = parse_consistency_level_lwt(value);
-        if (default_write_consistency_level != db::consistency_level::LOCAL_QUORUM) {
+        if (default_write_consistency_level != db::consistency_level::QUORUM) {
             elogger.warn("Changing the default write consistency level may affect data reliability and service availability. Please make sure you know what the correct configuration is.");
         }
     }
@@ -868,8 +869,21 @@ void executor::set_default_read_consistency_level(std::string_view value){
     }else{
         validate_legal_read_consistency_level(value);
         default_read_consistency_level = parse_consistency_level(value);
-        if (default_read_consistency_level != db::consistency_level::LOCAL_ONE) {
+        if (default_read_consistency_level != db::consistency_level::QUORUM) {
             elogger.warn("Changing the default read consistency level may affect data reliability and service availability. Please make sure you know what the correct configuration is.");
+        }
+    }
+}
+
+void executor::set_default_getrecords_consistency_level(std::string_view value){
+    if (value.empty()){
+        elogger.warn("Without providing getrecords consistency level,using the default CL='{}' for Alternator read request.",
+                    default_getrecords_consistency_level);
+    }else{
+        validate_legal_read_consistency_level(value);
+        default_getrecords_consistency_level = parse_consistency_level(value);
+        if (default_records_consistency_level != db::consistency_level::QUORUM) {
+            elogger.warn("Changing the default getrecords consistency level may affect the accuracy of cdc streams. Please make sure you know what the correct configuration is.");
         }
     }
 }
