@@ -366,6 +366,7 @@ public:
     named_value<sstring> alternator_write_isolation;
     named_value<sstring> alternator_write_consistency_level;
     named_value<sstring> alternator_read_consistency_level;
+    named_value<sstring> alternator_getrecords_consistency_level;
     named_value<sstring> alternator_query_consistency_level;
     named_value<int> alternator_replication_factor;
     named_value<uint32_t> alternator_streams_time_window_s;
