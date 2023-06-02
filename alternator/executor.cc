@@ -1121,7 +1121,10 @@ static future<executor::request_return_type> create_table_on_shard0(tracing::tra
                 }
                 if (pt == "INCLUDE") {
                     const rjson::value* nonkeyattributes = rjson::find(*projection, "NonKeyAttributes");
-                    if (!nonkeyattributes || !nonkeyattributes->IsArray()) {
+                    if (!nonkeyattributes) {
+                        return make_ready_future<request_return_type>(api_error::validation(format("If Projection type INCLUDE is specified, some non-key attributes to include in the projection must be specified as well")));
+                    }
+                    if (!nonkeyattributes->IsArray()) {
                         return make_ready_future<request_return_type>(api_error::validation(format("GlobalSecondaryIndexes NonKeyAttributes must be an array. Instead of {}.",*nonkeyattributes)));
                     }
                     for (const rjson::value& nka : nonkeyattributes->GetArray()) {
