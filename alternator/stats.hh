@@ -68,6 +68,8 @@ public:
 
         utils::time_estimated_histogram put_item_latency;
         utils::time_estimated_histogram get_item_latency;
+        utils::time_estimated_histogram batch_write_item_latency;
+        utils::time_estimated_histogram batch_get_item_latency;
         utils::time_estimated_histogram delete_item_latency;
         utils::time_estimated_histogram update_item_latency;
         utils::time_estimated_histogram query_latency;

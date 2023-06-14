@@ -63,6 +63,8 @@ stats::stats() : api_operations{} {
             OPERATION(update_time_to_live, "UpdateTimeToLive")
             OPERATION_LATENCY(put_item_latency, "PutItem")
             OPERATION_LATENCY(get_item_latency, "GetItem")
+            OPERATION_LATENCY(batch_write_item_latency, "BatchWriteItem")
+            OPERATION_LATENCY(batch_get_item_latency, "BatchGetItem")
             OPERATION_LATENCY(delete_item_latency, "DeleteItem")
             OPERATION_LATENCY(update_item_latency, "UpdateItem")
             OPERATION_LATENCY(query_latency, "Query")
