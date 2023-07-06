@@ -848,6 +848,80 @@ static void verify_billing_mode(const rjson::value& request) {
     }
 }
 
+static bool is_deletion_protection_enabled(const rjson::value& request)
+{
+    const rjson::value* deletion_protection_enabled = rjson::find(request, "DeletionProtectionEnabled");
+    // DeletionProtectionEnabled default is disabled
+    if (!deletion_protection_enabled) {
+        return false;
+    }
+
+    if (!deletion_protection_enabled->IsBool()) {
+        throw api_error::validation("DeletionProtectionEnabled needs boolean type");
+    }
+
+    return deletion_protection_enabled->GetBool();
+}
+
+static void update_deletion_protection_attribute(const schema_ptr& schema, const rjson::value& request, std::map<sstring, sstring>& tags_map) {
+    auto deletion_protection_enabled = rjson::find(request, "DeletionProtectionEnabled");
+    // no need to update if not specify 'DeletionProtectionEnabled'
+    if (!deletion_protection_enabled) {
+        return ;
+    }
+
+    if (!deletion_protection_enabled->IsBool()) {
+        throw api_error::validation("DeletionProtectionEnabled needs boolean type");
+    }
+
+    // Read tags of the table, and add or remove DELETION_PROTECTION_TAG_KEY
+    // tag according 'DeletionProtectionEnabled'.
+    const std::map<sstring, sstring>* tags_ptr = db::get_tags_of_table(schema);
+    if (tags_ptr) {
+        tags_map = *tags_ptr;
+    }
+
+    // Put the DELETION_PROTECTION_TAG_KEY in tags means the table is protected.
+    // A table without DELETION_PROTECTION_TAG_KEY means it has not protection.
+    if (deletion_protection_enabled->GetBool()) {
+        tags_map[DELETION_PROTECTION_TAG_KEY] = DELETION_PROTECTION_TAG_VALUE;
+    } else {
+        tags_map.erase(DELETION_PROTECTION_TAG_KEY);
+    }
+}
+
+// Validate that a AttributeDefinitions parameter in CreateTable is valid, and
+// throws user-facing api_error::validation if it's not.
+// In particular, verify that the same AttributeName doesn't appear more than
+// once (Issue #13870).
+static void validate_attribute_definitions(const rjson::value& attribute_definitions) {
+    if (!attribute_definitions.IsArray()) {
+        throw api_error::validation("AttributeDefinitions must be an array");
+    }
+    std::unordered_set<std::string> seen_attribute_names;
+    for (auto it = attribute_definitions.Begin(); it != attribute_definitions.End(); ++it) {
+        const rjson::value* attribute_name = rjson::find(*it, "AttributeName");
+        if (!attribute_name) {
+            throw api_error::validation("AttributeName missing in AttributeDefinitions");
+        }
+        if (!attribute_name->IsString()) {
+            throw api_error::validation("AttributeName in AttributeDefinitions must be a string");
+        }
+        auto [it2, added] = seen_attribute_names.emplace(rjson::to_string_view(*attribute_name));
+        if (!added) {
+            throw api_error::validation(format("Duplicate AttributeName={} in AttributeDefinitions",
+                rjson::to_string_view(*attribute_name)));
+        }
+        const rjson::value* attribute_type = rjson::find(*it, "AttributeType");
+        if (!attribute_type) {
+            throw api_error::validation("AttributeType missing in AttributeDefinitions");
+        }
+        if (!attribute_type->IsString()) {
+            throw api_error::validation("AttributeType in AttributeDefinitions must be a string");
+        }
+    }
+}
+
 static future<executor::request_return_type> create_table_on_shard0(tracing::trace_state_ptr trace_state, rjson::value request, service::storage_proxy& sp, service::migration_manager& mm, gms::gossiper& gossiper) {
     assert(this_shard_id() == 0);
 
@@ -861,6 +935,7 @@ static future<executor::request_return_type> create_table_on_shard0(tracing::tra
     }
     std::string keyspace_name = executor::KEYSPACE_NAME_PREFIX + table_name;
     const rjson::value& attribute_definitions = request["AttributeDefinitions"];
+    validate_attribute_definitions(attribute_definitions);
 
     tracing::add_table_name(trace_state, keyspace_name, table_name);
 
