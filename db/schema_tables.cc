@@ -2639,6 +2639,9 @@ static schema_mutations make_table_mutations(schema_ptr table, api::timestamp_ty
     if (table->is_counter()) {
         flags.emplace_back("counter");
     }
+    if (table->is_deletion_protection_enabled()) {
+        flags.emplace_back("deletion_protection_enabled");
+    }
 
     m.set_clustered_cell(ckey, "flags", make_list_value(s->get_column_definition("flags")->type, flags), timestamp);
 
@@ -3068,6 +3071,7 @@ schema_ptr create_table_from_mutations(const schema_ctxt& ctxt, schema_mutations
     auto is_dense = false;
     auto is_counter = false;
     auto is_compound = false;
+    auto is_deletion_protection_enabled = false;
     auto flags = table_row.get<set_type_impl::native_type>("flags");
 
     if (flags) {
@@ -3081,6 +3085,8 @@ schema_ptr create_table_from_mutations(const schema_ctxt& ctxt, schema_mutations
                 is_compound = true;
             } else if (s == "counter") {
                 is_counter = true;
+            } else if (s == "deletion_protection_enabled") {
+                is_deletion_protection_enabled = true;
             }
         }
     }
@@ -3100,6 +3106,7 @@ schema_ptr create_table_from_mutations(const schema_ctxt& ctxt, schema_mutations
     builder.set_is_dense(is_dense);
     builder.set_is_compound(is_compound);
     builder.set_is_counter(is_counter);
+    builder.set_deletion_protection_enabled(is_deletion_protection_enabled);
 
     prepare_builder_from_table_row(ctxt, builder, table_row);
 

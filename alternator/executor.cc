@@ -139,6 +139,7 @@ void executor::supplement_table_info(rjson::value& descr, const schema& schema, 
     rjson::add(descr, "CreationDateTime", rjson::value(std::chrono::duration_cast<std::chrono::seconds>(gc_clock::now().time_since_epoch()).count()));
     rjson::add(descr, "TableStatus", "ACTIVE");
     rjson::add(descr, "TableId", rjson::from_string(schema.id().to_sstring()));
+    rjson::add(descr, "DeletionProtectionEnabled", rjson::value{schema.is_deletion_protection_enabled()});
 
     executor::supplement_table_stream_info(descr, schema, sp);
 }
@@ -470,6 +471,8 @@ static rjson::value fill_table_description(schema_ptr schema, table_status tbl_s
     rjson::add(table_description["ProvisionedThroughput"], "WriteCapacityUnits", 0);
     rjson::add(table_description["ProvisionedThroughput"], "NumberOfDecreasesToday", 0);
 
+    rjson::add(table_description, "DeletionProtectionEnabled", rjson::value{schema->is_deletion_protection_enabled()});
+
     std::unordered_map<std::string,std::string> key_attribute_types;
     // Add base table's KeySchema and collect types for AttributeDefinitions:
     executor::describe_key_schema(table_description, *schema, key_attribute_types);
@@ -572,6 +575,11 @@ future<executor::request_return_type> executor::delete_table(client_state& clien
             throw api_error::resource_not_found(format("Requested resource not found: Table: {} not found", table_name));
         }
 
+        schema_ptr schema = p.local().data_dictionary().find_schema(keyspace_name, table_name);
+        if (schema->is_deletion_protection_enabled()) {
+            throw api_error::validation("Resource cannot be deleted as it is currently protected against deletion. Disable deletion protection first.");
+        }
+
         auto m = co_await service::prepare_column_family_drop_announcement(_proxy, keyspace_name, table_name, group0_guard.write_timestamp(), service::drop_views::yes);
         auto m2 = co_await service::prepare_keyspace_drop_announcement(_proxy.local_db(), keyspace_name, group0_guard.write_timestamp());
 
@@ -581,6 +589,7 @@ future<executor::request_return_type> executor::delete_table(client_state& clien
     });
 
     rjson::value response = rjson::empty_object();
+    rjson::add(table_description, "DeletionProtectionEnabled", rjson::value{false});
     rjson::add(response, "TableDescription", std::move(table_description));
     elogger.trace("returning {}", response);
     co_return make_jsonable(std::move(response));
@@ -1050,6 +1059,16 @@ static void validate_attribute_definitions(const rjson::value& attribute_definit
     }
 }
 
+static void set_deletion_protection_enabled(schema_builder& builder, const rjson::value& request) {
+    const rjson::value* deletion_protection_enabled = rjson::find(request, "DeletionProtectionEnabled");
+    if (deletion_protection_enabled) {
+        if (!deletion_protection_enabled->IsBool()) {
+            throw api_error::validation("DeletionProtectionEnabled needs boolean type");
+        }
+        builder.set_deletion_protection_enabled(deletion_protection_enabled->GetBool());
+    }
+}
+
 static future<executor::request_return_type> create_table_on_shard0(tracing::trace_state_ptr trace_state, rjson::value request, service::storage_proxy& sp, service::migration_manager& mm, gms::gossiper& gossiper) {
     assert(this_shard_id() == 0);
 
@@ -1289,6 +1308,8 @@ static future<executor::request_return_type> create_table_on_shard0(tracing::tra
         executor::add_stream_options(*stream_specification, builder, sp);
     }
 
+    set_deletion_protection_enabled(builder, request);
+
     // Parse the "Tags" parameter early, so we can avoid creating the table
     // at all if this parsing failed.
     const rjson::value* tags = rjson::find(request, "Tags");
@@ -1413,6 +1434,8 @@ future<executor::request_return_type> executor::update_table(client_state& clien
         if (stream_specification && stream_specification->IsObject()) {
             add_stream_options(*stream_specification, builder, p.local());
         }
+
+        set_deletion_protection_enabled(builder, request);
 
         auto schema = builder.build();
 
