@@ -13,7 +13,7 @@ import pytest
 import boto3
 import requests
 import re
-from util import create_test_table, is_aws, scylla_log
+from alternator_util import create_test_table, is_aws
 from urllib.parse import urlparse
 
 # Test that the Boto libraries are new enough. These tests want to test a
