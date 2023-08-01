@@ -600,7 +600,6 @@ private:
         bool _is_dense = false;
         bool _is_compound = true;
         bool _is_counter = false;
-        bool _deletion_protection_enabled = false;
         cf_type _type = cf_type::standard;
         int32_t _gc_grace_seconds = DEFAULT_GC_GRACE_SECONDS;
         std::optional<int32_t> _paxos_grace_seconds;
@@ -733,10 +732,6 @@ public:
     }
     bool is_counter() const {
         return _raw._is_counter;
-    }
-
-    bool is_deletion_protection_enabled() const {
-        return _raw._deletion_protection_enabled;
     }
 
     const cf_type type() const {

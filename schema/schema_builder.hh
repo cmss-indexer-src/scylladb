@@ -236,11 +236,6 @@ public:
         return *this;
     }
 
-    schema_builder& set_deletion_protection_enabled(bool deletion_protection_enabled) {
-        _raw._deletion_protection_enabled = deletion_protection_enabled;
-        return *this;
-    }
-
     schema_builder& with_partitioner(sstring name);
     schema_builder& with_sharder(unsigned shard_count, unsigned sharding_ignore_msb_bits);
     class default_names {

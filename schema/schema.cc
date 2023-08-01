@@ -551,7 +551,6 @@ bool operator==(const schema& x, const schema& y)
         && indirect_equal_to<std::unique_ptr<::view_info>>()(x._view_info, y._view_info)
         && x._raw._indices_by_name == y._raw._indices_by_name
         && x._raw._is_counter == y._raw._is_counter
-        && x._raw._deletion_protection_enabled == y._raw._deletion_protection_enabled
         ;
 #if 0
         && Objects.equal(triggers, other.triggers)
@@ -677,7 +676,6 @@ std::ostream& operator<<(std::ostream& os, const schema& s) {
     os << ",cfType=" << cf_type_to_sstring(s._raw._type);
     os << ",comparator=" << cell_comparator::to_sstring(s);
     os << ",comment=" << s._raw._comment;
-    os << ",deletionProtectionEnabled=" << s._raw._deletion_protection_enabled;
     os << ",readRepairChance=" << s._raw._read_repair_chance;
     os << ",dcLocalReadRepairChance=" << s._raw._dc_local_read_repair_chance;
     os << ",tombstoneGcOptions=" << s.tombstone_gc_options().to_sstring();
