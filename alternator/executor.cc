@@ -1127,6 +1127,12 @@ static future<executor::request_return_type> create_table_on_shard0(tracing::tra
         co_return api_error::validation(format("Prefix {} is reserved for accessing internal tables", executor::INTERNAL_TABLE_PREFIX));
     }
     std::string keyspace_name = executor::KEYSPACE_NAME_PREFIX + table_name;
+    if (!request.HasMember("KeySchema")) {
+        co_return api_error::validation("No defined key schema. A key schema containing at least a hash key must be defined for all tables");
+    }
+    if (!request.HasMember("AttributeDefinitions")) {
+        co_return api_error::validation("No Attribute Schema Defined");
+    } 
     const rjson::value& attribute_definitions = request["AttributeDefinitions"];
     validate_attribute_definitions(attribute_definitions);
 
