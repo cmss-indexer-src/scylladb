@@ -176,10 +176,10 @@ def test_tags_return_empty_body(dynamodb, test_table):
     assert not response.text
 
 def test_create_table_without_keyschema(dynamodb, test_table_s):
-    payload = '{"TableName": "alternator_Test1", "BillingMode": "PAY_PER_REQUEST"}'
+    payload = '{"TableName": "alternator_Test1", "AttributeDefinitions": [{"AttributeName": "lock_key", "AttributeType": "S"}, {"AttributeName": "sort_key", "AttributeType": "S"}], "BillingMode": "PAY_PER_REQUEST"}'
     req = get_signed_request(dynamodb, 'CreateTable', payload)
     response = requests.post(req.url, headers=req.headers, data=req.body, verify=False)
-    assert "ValidationException" in response.text and "No defined key schema. A key schema containing at least a hash key must be defined for all tables" in response.text
+    assert "ValidationException" in response.text and "Missing KeySchema member" in response.text
 
 def test_create_table_without_attribute_definition(dynamodb, test_table_s):
     payload = '{"TableName": "alternator_Test2", "KeySchema": [{"AttributeName": "lock_key", "KeyType": "HASH"}, {"AttributeName": "sort_key", "KeyType": "RANGE"}], "BillingMode": "PAY_PER_REQUEST"}'
