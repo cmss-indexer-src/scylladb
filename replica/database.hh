@@ -372,6 +372,7 @@ public:
         bool enable_metrics_reporting = false;
         bool enable_node_aggregated_table_metrics = true;
         bool enable_estimated_row_count_reporting = false;
+        sstring node_aggregated_specified_table_metrics = "";
         db::timeout_semaphore* view_update_concurrency_semaphore;
         size_t view_update_concurrency_semaphore_limit;
         db::data_listeners* data_listeners = nullptr;

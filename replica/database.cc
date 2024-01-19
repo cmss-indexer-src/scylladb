@@ -1292,6 +1292,7 @@ keyspace::make_column_family_config(const schema& s, const database& db) const {
     cfg.enable_metrics_reporting = db_config.enable_keyspace_column_family_metrics();
     cfg.enable_node_aggregated_table_metrics = db_config.enable_node_aggregated_table_metrics();
     cfg.enable_estimated_row_count_reporting = db_config.enable_keyspace_column_family_estimated_row_count();
+    cfg.node_aggregated_specified_table_metrics = db_config.node_aggregated_specified_table_metrics();
     cfg.reversed_reads_auto_bypass_cache = db_config.reversed_reads_auto_bypass_cache;
     cfg.enable_optimized_reversed_reads = db_config.enable_optimized_reversed_reads;
     cfg.tombstone_warn_threshold = db_config.tombstone_warn_threshold();
