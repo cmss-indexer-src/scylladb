@@ -76,6 +76,9 @@ future<> controller::start_server() {
         _ssg = create_smp_service_group(c).get0();
 
         rmw_operation::set_default_write_isolation(_config.alternator_write_isolation());
+        executor::set_default_timeout(std::chrono::milliseconds(_config.alternator_timeout_in_ms()));
+        alternator::executor::set_default_write_consistency_level(_config.alternator_write_consistency_level());
+        alternator::executor::set_default_read_consistency_level(_config.alternator_read_consistency_level());
 
         net::inet_address addr = utils::resolve(_config.alternator_address, family).get0();
 

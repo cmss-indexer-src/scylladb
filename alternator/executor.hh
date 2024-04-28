@@ -18,6 +18,7 @@
 #include "service/client_state.hh"
 #include "service_permit.hh"
 #include "db/timeout_clock.hh"
+#include "db/consistency_level_type.hh"
 
 #include "alternator/error.hh"
 #include "stats.hh"
@@ -216,6 +217,12 @@ public:
 
     static sstring table_name(const schema&);
     static db::timeout_clock::time_point default_timeout();
+    static void set_default_timeout(db::timeout_clock::duration timeout);
+    static void set_default_write_consistency_level(std::string_view cl);
+    static void set_default_read_consistency_level(std::string_view cl);
+    static db::consistency_level default_write_consistency_level;
+    static db::consistency_level default_write_consistency_level_lwt;
+    static db::consistency_level default_read_consistency_level;
 private:
     static thread_local utils::updateable_value<uint32_t> s_default_timeout_in_ms;
 public:
