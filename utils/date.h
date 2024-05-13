@@ -3666,14 +3666,14 @@ public:
         os << t.h_.count();
         switch (t.mode_)
         {
-        case time_of_day_storage::is24hr:
-            os << "00";
-            break;
         case am:
             os << "am";
             break;
         case pm:
             os << "pm";
+            break;
+        default:
+            os << "00";
             break;
         }
         return os;
@@ -3746,6 +3746,9 @@ public:
             break;
         case pm:
             os << "pm";
+            break;
+        default:
+            os << "00";
             break;
         }
         return os;
@@ -3825,6 +3828,9 @@ public:
             break;
         case pm:
             os << "pm";
+            break;
+        default:
+            os << "00";
             break;
         }
         return os;
@@ -3909,6 +3915,9 @@ public:
             break;
         case pm:
             os << "pm";
+            break;
+        default:
+            os << "00";
             break;
         }
         return os;
