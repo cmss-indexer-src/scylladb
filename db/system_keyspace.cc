@@ -252,6 +252,8 @@ schema_ptr system_keyspace::raft_snapshot_config() {
     return schema;
 }
 
+static uint32_t s_repair_histroy_ttl_seconds = 0;
+
 schema_ptr system_keyspace::repair_history() {
     static thread_local auto schema = [] {
         auto id = generate_legacy_id(NAME, REPAIR_HISTORY);
@@ -2878,6 +2880,7 @@ future<> system_keyspace_make(db::system_keyspace& sys_ks, distributed<replica::
     if (tables.contains_keyspace(system_keyspace::NAME)) {
         install_virtual_readers(sys_ks, db);
     }
+    s_repair_histroy_ttl_seconds = cfg.repair_histroy_ttl_seconds();
 }
 
 future<> system_keyspace::make(distributed<replica::database>& db, distributed<service::storage_service>& ss, sharded<gms::gossiper>& g, distributed<service::raft_group_registry>& raft_gr, db::config& cfg, table_selector& tables) {
@@ -3002,8 +3005,9 @@ future<> system_keyspace::get_compaction_history(compaction_history_consumer&& f
 }
 
 future<> system_keyspace::update_repair_history(repair_history_entry entry) {
-    sstring req = format("INSERT INTO system.{} (table_uuid, repair_time, repair_uuid, keyspace_name, table_name, range_start, range_end) VALUES (?, ?, ?, ?, ?, ?, ?)", REPAIR_HISTORY);
+    sstring req = format("INSERT INTO system.{} (table_uuid, repair_time, repair_uuid, keyspace_name, table_name, range_start, range_end) VALUES (?, ?, ?, ?, ?, ?, ?) USING TTL {}", REPAIR_HISTORY, s_repair_histroy_ttl_seconds);
     co_await execute_cql(req, entry.table_uuid.uuid(), entry.ts, entry.id.uuid(), entry.ks, entry.cf, entry.range_start, entry.range_end).discard_result();
+    slogger.trace("INSERT INTO system.repair_histroy table_uuid {} with ttl {}",entry.table_uuid.uuid(), s_repair_histroy_ttl_seconds);
 }
 
 future<> system_keyspace::get_repair_history(::table_id table_id, repair_history_consumer f) {

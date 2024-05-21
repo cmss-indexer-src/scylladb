@@ -20,6 +20,7 @@
 #include "xx_hasher.hh"
 #include "utils/UUID.hh"
 #include "utils/hash.hh"
+#include "utils/crc.hh"
 #include "service/priority_manager.hh"
 #include "replica/database.hh"
 #include <seastar/util/bool_class.hh>
@@ -3020,13 +3021,16 @@ future<> repair_service::cleanup_history(tasks::task_id repair_id) {
 
 future<> repair_service::load_history() {
     auto tables = get_db().local().get_column_families();
-    for (const auto& x : tables) {
+
+    co_await coroutine::parallel_for_each(tables, [&] (const auto& x) -> future<> {
         auto& table_uuid = x.first;
         auto& table = x.second;
-        auto shard = unsigned(table_uuid.uuid().get_most_significant_bits()) % smp::count;
+        auto shard = uint32_t(std::hash<utils::UUID>{}(table_uuid.uuid())) % smp::count;
         if (shard != this_shard_id()) {
-            continue;
+            co_return;
         }
+        auto permit = co_await seastar::get_units(_load_parallelism_semaphore, 1);
+
         rlogger.info("Loading repair history for keyspace={}, table={}, table_uuid={}",
                 table->schema()->ks_name(), table->schema()->cf_name(), table_uuid);
         co_await _sys_ks.local().get_repair_history(table_uuid, [this] (const auto& entry) -> future<> {
@@ -3046,7 +3050,7 @@ future<> repair_service::load_history() {
                         entry.ks, entry.cf, range, repair_time);
             }
         });
-    }
+    });
     co_return;
 }
 
