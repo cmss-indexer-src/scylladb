@@ -1061,6 +1061,9 @@ static future<executor::request_return_type> create_table_on_shard0(tracing::tra
         co_return api_error::validation(format("Prefix {} is reserved for accessing internal tables", executor::INTERNAL_TABLE_PREFIX));
     }
     std::string keyspace_name = executor::KEYSPACE_NAME_PREFIX + table_name;
+    if (!request.HasMember("AttributeDefinitions")) {
+        co_return api_error::validation("No Attribute Schema Defined");
+    } 
     const rjson::value& attribute_definitions = request["AttributeDefinitions"];
 
     tracing::add_table_name(trace_state, keyspace_name, table_name);
