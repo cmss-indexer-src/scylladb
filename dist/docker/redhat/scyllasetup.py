@@ -70,7 +70,8 @@ class ScyllaSetup:
             os.makedirs(data_dir)
 
         if self._io_setup == "1":
-            self._run(['/opt/scylladb/scripts/scylla_io_setup'])
+             if not os.path.exists("/etc/scylla.d/io_properties.yaml") or not os.path.getsize("/etc/scylla.d/io_properties.yaml"):
+                    self._run(['/opt/scylladb/scripts/scylla_io_setup'])
 
     def cqlshrc(self):
         home = os.environ['HOME']
@@ -120,9 +121,9 @@ class ScyllaSetup:
             else:
                 self._seeds = self._listenAddress
 
-        args += ["--listen-address %s" % self._listenAddress,
-                 "--rpc-address %s" % self._rpcAddress,
-                 "--seed-provider-parameters seeds=%s" % self._seeds]
+        #args += ["--listen-address %s" % self._listenAddress, #注释，使 listen_address 值按照配置文件中设定的值运行
+        #         "--rpc-address %s" % self._rpcAddress, #同上
+        #         "--seed-provider-parameters seeds=%s" % self._seeds] #同上
 
         if self._broadcastAddress is not None:
             args += ["--broadcast-address %s" % self._broadcastAddress]
@@ -132,13 +133,12 @@ class ScyllaSetup:
         if self._apiAddress is not None:
             args += ["--api-address %s" % self._apiAddress]
 
-        if self._alternatorAddress is not None:
-            args += ["--alternator-address %s" % self._alternatorAddress]
-
         if self._alternatorPort is not None:
+            args += ["--alternator-address %s" % self._alternatorAddress]
             args += ["--alternator-port %s" % self._alternatorPort]
 
         if self._alternatorHttpsPort is not None:
+            args += ["--alternator-address %s" % self._alternatorAddress]
             args += ["--alternator-https-port %s" % self._alternatorHttpsPort]
 
         if self._alternatorWriteIsolation is not None:

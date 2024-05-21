@@ -26,7 +26,7 @@ def parse():
     parser.add_argument('--alternator-read-consistency-level', default=None, dest='alternatorReadCL', help="Alternator default read consistency level. Should be LOCAL_ONE or TWO.")
     parser.add_argument('--alternator-getrecords-consistency-level', default=None, dest='alternatorGetrecordsCL', help="Alternator default getrecords consistency level. Should be QUORUM or THREE.")
     parser.add_argument('--alternator-query-consistency-level', default=None, dest='alternatorQueryCL', help="Alternator default query consistency level. Should be ONE or TWO.")
-    parser.add_argument('--alternator-replication-factor', default=3, dest='alternatorRF', help="Alternator replication factor, default value is 3.")
+    parser.add_argument('--alternator-replication-factor', default=None, dest='alternatorRF', help="Alternator replication factor, default value is 3.")
     parser.add_argument('--disable-version-check', default=False, action='store_true', dest='disable_housekeeping', help="Disable version check")
     parser.add_argument('--authenticator', default=None, dest='authenticator', help="Set authenticator class")
     parser.add_argument('--authorizer', default=None, dest='authorizer', help="Set authorizer class")

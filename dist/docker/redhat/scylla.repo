@@ -1,0 +1,5 @@
+[scylla]
+name=scylla
+baseurl=http://192.168.75.129/indexer/4.4.1/
+gpgcheck=0
+enabled=1

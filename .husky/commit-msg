@@ -1,0 +1,6 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+if [ -f "./.commitlint.config.js" ]; then
+npx --no -- commitlint -g ./.commitlint.config.js --edit $1
+fi

@@ -195,6 +195,7 @@ docker_common_args+=(
        -v "$PWD:$PWD" \
        -v "$tmpdir:/tmp" \
        -v "$MAVEN_LOCAL_REPO:$MAVEN_LOCAL_REPO" \
+       -v /home/indexer/ccache:/root/.cache/ccache:z \
        -v /etc/localtime:/etc/localtime:ro \
        --env CARGO_HOME \
        -v "${CARGO_HOME}:${CARGO_HOME}" \

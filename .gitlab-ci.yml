@@ -1,0 +1,283 @@
+include:
+  - project: 'eos/devops/gitlab-cicd-template'
+    ref: cmain
+    file:
+      - 'common/global.yml'
+      - 'common/lint/commit-check.yml'
+      - 'common/lint/generate-changelog.yml'
+      - 'common/lint/release.yml'
+
+
+stages:
+  - commit-check
+  - rpm-build
+  - image-build
+  - image-build-job
+  - indexer-src-build-and-test
+  - generate-changelog
+  - release
+
+
+variables:
+  ### 检查脚本相关配置 ###
+
+  ### 编译脚本 ###
+  INDEXER_RPM_BUILD_SCRIPT: "$CI_PROJECT_DIR/.gitlab/ci/indexer-rpm-build.sh"
+
+# 编译indexer rpm包生成repo
+centos-x86_64-indexer-rpm-build:
+  stage: rpm-build
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^5.*/
+  extends:
+    - .shell-runner-for-ci
+  before_script:
+    - chmod a+x ${INDEXER_RPM_BUILD_SCRIPT}
+    - git fetch origin --tags
+    - tag_branch=$(git branch -a --contains tags/$CI_COMMIT_TAG | awk 'END {print}')
+    - echo "tag_branch:$tag_branch, CI_COMMIT_TAG:$CI_COMMIT_TAG"
+  script:
+    - >
+      if [ -n $CI_COMMIT_TAG ]; then
+        echo "Get tag $CI_COMMIT_TAG from branch $tag_branch"
+        version=$(echo "$CI_COMMIT_TAG" | awk -F'[v.]' '{ if ($1 != "") print $1$2; else print $2$3; }')
+        new_port=$(expr $DISTCC_BASE_PORT + $version)
+        DISTCC_HOSTS=""
+        for host in $DISTCC_HOSTS_AMD64
+        do
+          DISTCC_HOSTS+="$host:$new_port/16 "
+        done
+        DISTCC_HOSTS=${DISTCC_HOSTS%" "}
+        sh ${INDEXER_RPM_BUILD_SCRIPT} $CI_COMMIT_TAG "$DISTCC_HOSTS" $DTEST_THREADS
+      else
+        echo "Cannot get CI_COMMIT_TAG, please check"
+      fi
+
+euler-aarch64-indexer-rpm-build:
+  stage: rpm-build
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^5.*/
+  extends:
+    - .shell-runner-for-build-arm
+  tags:
+    - shell-runner
+    - aarch64-euler
+  before_script:
+    - chmod a+x ${INDEXER_RPM_BUILD_SCRIPT}
+    - git fetch origin --tags
+    - tag_branch=$(git branch -a --contains tags/$CI_COMMIT_TAG | awk 'END {print}')
+    - echo "tag_branch:$tag_branch, CI_COMMIT_TAG:$CI_COMMIT_TAG"
+  script:
+    - >
+      if [ -n $CI_COMMIT_TAG ]; then
+        echo "Get tag $CI_COMMIT_TAG from branch $tag_branch"
+        version=$(echo "$CI_COMMIT_TAG" | awk -F'[v.]' '{ if ($1 != "") print $1$2; else print $2$3; }')
+        new_port=$(expr $DISTCC_BASE_PORT + $version)
+        DISTCC_HOSTS=""
+        for host in $DISTCC_HOSTS_ARM64
+        do
+          DISTCC_HOSTS+="$host:$new_port/16 "
+        done
+        DISTCC_HOSTS=${DISTCC_HOSTS%" "}
+        sh ${INDEXER_RPM_BUILD_SCRIPT} $CI_COMMIT_TAG "$DISTCC_HOSTS" $DTEST_THREADS
+      else
+        echo "Cannot get CI_COMMIT_TAG, please check"
+      fi
+
+
+# 编译indexer，构建image
+centos-x86_64-image-build:
+  stage: image-build
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^5.*/
+  extends:
+    - .shell-runner-for-ci
+  before_script:
+    - git fetch origin --tags
+    - tag_branch=$(git branch -a --contains tags/$CI_COMMIT_TAG | awk 'END {print}')
+    - echo "tag_branch:$tag_branch, CI_COMMIT_TAG:$CI_COMMIT_TAG"
+  script: |
+    echo "CI_COMMIT_TAG:${CI_COMMIT_TAG}"
+    VERSION=$(grep "^VERSION=" SCYLLA-VERSION-GEN | awk -F= '{print $2}')
+    echo "VERSION:${VERSION}"
+    docker build --no-cache --network=host --build-arg CI_COMMIT_TAG=${CI_COMMIT_TAG} --build-arg VERSION=${VERSION} \
+      -t registry.paas/eos-indexer/eos-indexer:${CI_COMMIT_TAG}  -f indexer-e2.Dockerfile . 
+    docker run --security-opt seccomp=unconfined --name indexer-container-test -dit \
+      registry.paas/eos-indexer/eos-indexer:${CI_COMMIT_TAG} \
+      --memory 10G \
+      --smp 5 \
+      --cpuset 0-5 \
+      --alternator-port=11000 \
+      --alternator-ttl-period-in-seconds 2 \
+      --experimental-features=alternator-streams \
+      --alternator-write-consistency-level QUORUM \
+      --alternator-enforce-authorization 1 \
+      --alternator-write-isolation o \
+      --listen-address 0.0.0.0 \
+      --prometheus-address 0.0.0.0 \
+      --api-address 0.0.0.0 \
+      --developer-mode 1
+    scylla_address=$(docker inspect indexer-container-test | jq -r '.[0] | .NetworkSettings.Networks.bridge.IPAddress')
+    while true; do curl $scylla_address:11000 && break||sleep 5; done
+    docker exec indexer-container-test cqlsh -e "INSERT INTO system_auth.roles (role, salted_hash) VALUES ('alternator', 'secret_pass')"
+    pytest -v -c test/alternator/conftest.py --url http://$scylla_address:11000 test/alternator/test_*.py --runveryslow
+    docker push registry.paas/eos-indexer/eos-indexer:${CI_COMMIT_TAG}
+    echo "eos-indexer/eos-indexer:${CI_COMMIT_TAG} image build and push successfully"
+  after_script:
+    - docker rm -f indexer-container-test
+  needs:
+    - job: centos-x86_64-indexer-rpm-build
+      artifacts: true
+
+euler-aarch64-image-build:
+  stage: image-build
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^5.*/
+  extends:
+    - .shell-runner-for-build-arm
+  tags:
+    - shell-runner
+    - aarch64-euler
+  before_script:
+    - git fetch origin --tags
+    - tag_branch=$(git branch -a --contains tags/$CI_COMMIT_TAG | awk 'END {print}')
+    - echo "tag_branch:$tag_branch, CI_COMMIT_TAG:$CI_COMMIT_TAG"
+  script: |
+    echo "CI_COMMIT_TAG:${CI_COMMIT_TAG}"
+    VERSION=$(grep "^VERSION=" SCYLLA-VERSION-GEN | awk -F= '{print $2}')
+    echo "VERSION:${VERSION}"
+    docker build --no-cache --network=host --build-arg BASE_IMAGE=registry.paas/eos-toolchains/centos:7-e2-arm --build-arg CI_COMMIT_TAG=${CI_COMMIT_TAG} --build-arg YUM_REPO_HOST=100.71.8.120 --build-arg VERSION=${VERSION} -t registry.paas/eos-indexer/eos-indexer:${CI_COMMIT_TAG}-arm64  -f indexer-e2.Dockerfile .
+    docker run --security-opt seccomp=unconfined --name indexer-container-test -dit \
+      registry.paas/eos-indexer/eos-indexer:${CI_COMMIT_TAG}-arm64 \
+      --memory 10G \
+      --smp 5 \
+      --cpuset 0-5 \
+      --alternator-port=11000 \
+      --experimental-features=alternator-ttl \
+      --experimental-features=alternator-streams \
+      --alternator-write-consistency-level QUORUM \
+      --alternator-enforce-authorization 1 \
+      --alternator-write-isolation o \
+      --listen-address 0.0.0.0 \
+      --prometheus-address 0.0.0.0 \
+      --api-address 0.0.0.0 \
+      --developer-mode 1
+    scylla_address=$(docker inspect indexer-container-test | jq -r '.[0] | .NetworkSettings.Networks.bridge.IPAddress')
+    while true; do curl $scylla_address:11000 && break||sleep 5; done
+    docker exec indexer-container-test cqlsh -e "INSERT INTO system_auth.roles (role, salted_hash) VALUES ('alternator', 'secret_pass')"
+    pytest -v -c test/alternator/conftest.py --url http://$scylla_address:11000 test/alternator/test_*.py
+    docker push registry.paas/eos-indexer/eos-indexer:${CI_COMMIT_TAG}-arm64
+    echo "eos-indexer/eos-indexer:${CI_COMMIT_TAG}-arm64 image build and push successfully"
+  after_script:
+    - docker rm -f indexer-container-test
+  needs:
+    - job: euler-aarch64-indexer-rpm-build
+      artifacts: true
+
+# 编译indexer，构建 cmd-image
+centos-x86_64-cmd-image-build:
+  stage: image-build
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^5.*/
+  extends:
+    - .shell-runner-for-ci
+  script:
+    - echo "CI_COMMIT_TAG:${CI_COMMIT_TAG}"
+    - VERSION=$(grep "^VERSION=" SCYLLA-VERSION-GEN | awk -F= '{print $2}')
+    - echo "VERSION:${VERSION}"
+    - docker build --no-cache --network=host --build-arg CI_COMMIT_TAG=${CI_COMMIT_TAG} --build-arg VERSION=${VERSION} -t registry.paas/eos-indexer/eos-indexer-cmd:${CI_COMMIT_TAG}  -f indexer-e2-cmd.Dockerfile .
+    - docker push registry.paas/eos-indexer/eos-indexer-cmd:${CI_COMMIT_TAG}
+    - echo "eos-indexer/eos-indexer-cmd:${CI_COMMIT_TAG} image build and push successfully"
+  needs:
+    - job: centos-x86_64-indexer-rpm-build
+      artifacts: true
+
+euler-aarch64-cmd-image-build:
+  stage: image-build
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^5.*/
+  extends:
+    - .shell-runner-for-build-arm
+  tags:
+    - shell-runner
+    - aarch64-euler
+  script:
+    - echo "CI_COMMIT_TAG:${CI_COMMIT_TAG}"
+    - VERSION=$(grep "^VERSION=" SCYLLA-VERSION-GEN | awk -F= '{print $2}')
+    - echo "VERSION:${VERSION}"
+    - docker build --no-cache --network=host --build-arg BASE_IMAGE=registry.paas/eos-toolchains/centos:7-e2-arm --build-arg CI_COMMIT_TAG=${CI_COMMIT_TAG} --build-arg YUM_REPO_HOST=100.71.8.120 --build-arg VERSION=${VERSION} -t registry.paas/eos-indexer/eos-indexer-cmd:${CI_COMMIT_TAG}-arm64  -f indexer-e2-cmd.Dockerfile .
+    - docker push registry.paas/eos-indexer/eos-indexer-cmd:${CI_COMMIT_TAG}-arm64
+    - echo "eos-indexer/eos-indexer-cmd:${CI_COMMIT_TAG}-arm64 image build and push successfully"
+  needs:
+    - job: euler-aarch64-indexer-rpm-build
+      artifacts: true
+
+indexer-image-build:
+  stage: image-build-job
+  only:
+    - tags
+  extends:
+    - .shell-runner-for-ci
+  parallel:
+    matrix:
+      - JOB: centos-x86_64-image-build
+      - JOB: euler-aarch64-image-build
+  script:
+    - echo "Building $JOB ……"
+
+indexer-cmd-image-build:
+  stage: image-build-job
+  only:
+    - tags
+  extends:
+    - .shell-runner-for-ci
+  parallel:
+    matrix:
+      - JOB: centos-x86_64-cmd-image-build
+      - JOB: euler-aarch64-cmd-image-build
+  script:
+    - echo "Building $JOB ……"
+
+# Build project binaries and tests, then run functional tests against the project binaries
+build-project-and-test:
+  stage: indexer-src-build-and-test
+  only:
+    refs:
+      - merge_requests
+    changes:
+      - "**/*.cc"
+      - "**/*.hh"
+      - indexer_binary_build_dev.sh
+      # If test scripts was changed, run all of them.
+      - test/alternator/run
+  extends:
+    - .shell-runner-for-ci
+  script: |
+    VERSION=$(grep "^VERSION=" SCYLLA-VERSION-GEN | awk -F= '{print $2}')
+    version=$(echo "$VERSION" | awk -F'[v.]' '{ if ($1 != "") print $1$2; else print $2$3; }')
+    new_port=$(expr $DISTCC_BASE_PORT + $version)
+    DISTCC_HOSTS=""
+    for host in $DISTCC_HOSTS_AMD64
+    do
+      DISTCC_HOSTS+="$host:$new_port/16 "
+    done
+    DISTCC_HOSTS=${DISTCC_HOSTS%" "}
+    docker run --rm \
+      --entrypoint "bash" \
+      --user $(id -u) \
+      --security-opt seccomp=unconfined \
+      -v $PWD:$PWD \
+      -w $PWD \
+      -e DISTCC_HOSTS="$DISTCC_HOSTS" \
+      -e DTEST_THREADS=$DTEST_THREADS \
+      -e CCACHE_PREFIX="distcc" \
+      -e HOME="$HOME" \
+      -e PATH=/usr/lib64/ccache:/usr/bin:/usr/local/bin \
+      -v /home/indexer/ccache:/root/.cache/ccache:z \
+      -v /etc/localtime:/etc/localtime:ro \
+      -v /root/.m2:/root/.m2 \
+      -v /root/.cargo:/root/.cargo \
+      registry.paas/eos-toolchains/scylla-toolchain:fedora-37-branch-5.2-20231127-distccd \
+      -c "./indexer_binary_build_dev.sh && ./test/alternator/run --runveryslow"
+  after_script:
+    - git clean -fd

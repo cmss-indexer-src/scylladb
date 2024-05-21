@@ -1,0 +1,5 @@
+[onest-indexer]
+name=onest-indexer
+baseurl=http://192.168.75.129/onest-indexer/$VERSION/
+gpgcheck=0
+enabled=1

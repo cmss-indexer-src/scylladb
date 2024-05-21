@@ -1,0 +1,18 @@
+{
+    "options": {
+        "preset": {
+            "name": "conventionalcommits",
+            "types": [
+                {"type": "feat", "section": ":sparkles: Features", "hidden": false},
+                {"type": "fix", "section": ":bug: Bug Fixes"},
+                {"type": "perf", "section": ":fast_forward: Performance Improve"},
+                {"type": "refactor", "section": ":zap: Refator"},
+                {"type": "test", "section": ":white_check_mark: Testes"},
+                {"type": "docs", "section": ":memo: Document"},
+                {"type": "build", "section": ":package: Build"},
+                {"type": "style", "section": ":barber: Style Change"},
+                {"type": "chore", "hidden": true}
+            ]
+        }
+    }
+}

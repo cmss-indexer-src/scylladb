@@ -33,3 +33,4 @@ compile_commands.json
 .mypy_cache
 .envrc
 rust/Cargo.lock
+node_modules
