@@ -380,6 +380,58 @@ def test_delete_table_non_existent(dynamodb, test_table):
     with pytest.raises(ClientError, match='ResourceNotFoundException'):
         client.delete_table(TableName=random_string(20))
 
+@pytest.fixture(scope="function")
+def check_botocore_version_for_deletion_protection_enabled():
+    # The feature of creating a table with DeletionProtectionEnabled was only added to
+    # DynamoDB in March 2023, and to the botocore library in version 1.29.87
+    # https://github.com/boto/botocore/commit/50c76fb9d629466eb44ca4126bc86b6b8cdb1255
+    # https://aws.amazon.com/cn/about-aws/whats-new/2023/03/amazon-dynamodb-table-deletion-protection/
+    # so older versions of the library cannot run this test.
+    import botocore
+    from packaging.version import Version
+    if (Version(botocore.__version__) < Version('1.29.87')):
+        pytest.skip("Botocore version 1.29.87 or above required to run this test")
+
+def test_create_table_with_deletion_protection_enabled(dynamodb, check_botocore_version_for_deletion_protection_enabled):
+    # Wrongly set a non-bool type for DeletionProtectionEnabled
+    with pytest.raises(ClientError, match='ValidationException'):
+        create_table(dynamodb, unique_table_name(), DeletionProtectionEnabled="True")
+
+    table = create_table(dynamodb, unique_table_name(), DeletionProtectionEnabled=True)
+    assert True == table.deletion_protection_enabled
+    assert True == table.meta.client.describe_table(TableName=table.name)['Table'].get('DeletionProtectionEnabled')
+
+def test_delete_table_with_deletion_protection_enabled(dynamodb, check_botocore_version_for_deletion_protection_enabled):
+    # CreateTable with DeletionProtectionEnabled=True
+    table = create_table(dynamodb, unique_table_name(), DeletionProtectionEnabled=True)
+    # The table is protected from deletion.
+    with pytest.raises(ClientError, match='ValidationException'):
+        table.delete()
+
+    assert False == dynamodb.meta.client.update_table(
+        TableName=table.name,
+        DeletionProtectionEnabled=False,
+    )['TableDescription'].get('DeletionProtectionEnabled')
+
+    assert False == table.delete()['TableDescription'].get('DeletionProtectionEnabled')
+
+    with pytest.raises(ClientError, match='ResourceNotFoundException'):
+        dynamodb.meta.client.update_table(TableName=table.name, DeletionProtectionEnabled=True)
+
+def test_describe_table_has_deletion_protection_enabled(dynamodb, check_botocore_version_for_deletion_protection_enabled):
+    table = create_table(dynamodb, unique_table_name())
+    # CreateTable with no specifying 'DeletionProtectionEnabled', the default option should be false.
+    assert False == table.meta.client.describe_table(TableName=table.name)['Table'].get('DeletionProtectionEnabled')
+    # Enabled the option after update_table
+    assert True == dynamodb.meta.client.update_table(
+        TableName=table.name,
+        DeletionProtectionEnabled=True,
+    )['TableDescription'].get('DeletionProtectionEnabled')
+    assert True == table.meta.client.describe_table(TableName=table.name)['Table'].get('DeletionProtectionEnabled')
+
+    dynamodb.meta.client.update_table(TableName=table.name, DeletionProtectionEnabled=False)
+    table.delete()
+
 # Test that trying to update a table that doesn't exist fails in the
 # appropriate way (ResourceNotFoundException)
 def test_update_table_non_existent(dynamodb, test_table):

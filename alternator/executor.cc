@@ -115,11 +115,24 @@ std::string json_string::to_json() const {
     return _value;
 }
 
+static const sstring DELETION_PROTECTION_TAG_KEY("system:deletion_protection_attribute");
+static const sstring DELETION_PROTECTION_TAG_VALUE("DeletionProtectionEnabled");
+
+static bool get_deletion_protection_enabled_for_schema(schema_ptr schema)
+{
+    auto tags_ptr = db::get_tags_of_table(schema);
+    if (!tags_ptr) {
+        return false;
+    }
+    return tags_ptr->contains(DELETION_PROTECTION_TAG_KEY);
+}
+
 void executor::supplement_table_info(rjson::value& descr, const schema& schema, service::storage_proxy& sp) {
     rjson::add(descr, "CreationDateTime", rjson::value(std::chrono::duration_cast<std::chrono::seconds>(gc_clock::now().time_since_epoch()).count()));
     rjson::add(descr, "TableStatus", "ACTIVE");
     auto schema_id_str = schema.id().to_sstring();
     rjson::add(descr, "TableId", rjson::from_string(schema_id_str));
+    rjson::add(descr, "DeletionProtectionEnabled", rjson::value{get_deletion_protection_enabled_for_schema(schema.shared_from_this())});
 
     executor::supplement_table_stream_info(descr, schema, sp);
 }
@@ -448,6 +461,8 @@ future<executor::request_return_type> executor::describe_table(client_state& cli
     rjson::add(table_description["ProvisionedThroughput"], "WriteCapacityUnits", 0);
     rjson::add(table_description["ProvisionedThroughput"], "NumberOfDecreasesToday", 0);
 
+    rjson::add(table_description, "DeletionProtectionEnabled", rjson::value{get_deletion_protection_enabled_for_schema(schema)});
+
     std::unordered_map<std::string,std::string> key_attribute_types;
     // Add base table's KeySchema and collect types for AttributeDefinitions:
     describe_key_schema(table_description, *schema, key_attribute_types);
@@ -515,6 +530,12 @@ future<executor::request_return_type> executor::delete_table(client_state& clien
     tracing::add_table_name(trace_state, keyspace_name, table_name);
     auto& p = _proxy.container();
 
+    schema_ptr schema = get_table(_proxy, request);
+
+    if (get_deletion_protection_enabled_for_schema(schema)) {
+        throw api_error::validation(format("Resource table '{}' cannot be deleted as it is currently protected against deletion. Disable deletion protection first.", table_name));
+    }
+
     co_await _mm.container().invoke_on(0, [&] (service::migration_manager& mm) -> future<> {
         // FIXME: the following needs to be in a loop. If mm.announce() below
         // fails, we need to retry the whole thing.
@@ -536,6 +557,7 @@ future<executor::request_return_type> executor::delete_table(client_state& clien
     rjson::value table_description = rjson::empty_object();
     rjson::add(table_description, "TableName", rjson::from_string(table_name));
     rjson::add(table_description, "TableStatus", "DELETING");
+    rjson::add(table_description, "DeletionProtectionEnabled", rjson::value{false});
     rjson::value response = rjson::empty_object();
     rjson::add(response, "TableDescription", std::move(table_description));
     elogger.trace("returning {}", response);
@@ -985,6 +1007,48 @@ static void verify_billing_mode(const rjson::value& request) {
     }
 }
 
+static bool is_deletion_protection_enabled(const rjson::value& request)
+{
+    const rjson::value* deletion_protection_enabled = rjson::find(request, "DeletionProtectionEnabled");
+    // DeletionProtectionEnabled default is disabled
+    if (!deletion_protection_enabled) {
+        return false;
+    }
+
+    if (!deletion_protection_enabled->IsBool()) {
+        throw api_error::validation("DeletionProtectionEnabled needs boolean type");
+    }
+
+    return deletion_protection_enabled->GetBool();
+}
+
+static void update_deletion_protection_attribute(const schema_ptr& schema, const rjson::value& request, std::map<sstring, sstring>& tags_map) {
+    auto deletion_protection_enabled = rjson::find(request, "DeletionProtectionEnabled");
+    // no need to update if not specify 'DeletionProtectionEnabled'
+    if (!deletion_protection_enabled) {
+        return ;
+    }
+
+    if (!deletion_protection_enabled->IsBool()) {
+        throw api_error::validation("DeletionProtectionEnabled needs boolean type");
+    }
+
+    // Read tags of the table, and add or remove DELETION_PROTECTION_TAG_KEY
+    // tag according 'DeletionProtectionEnabled'.
+    const std::map<sstring, sstring>* tags_ptr = db::get_tags_of_table(schema);
+    if (tags_ptr) {
+        tags_map = *tags_ptr;
+    }
+
+    // Put the DELETION_PROTECTION_TAG_KEY in tags means the table is protected.
+    // A table without DELETION_PROTECTION_TAG_KEY means it has not protection.
+    if (deletion_protection_enabled->GetBool()) {
+        tags_map[DELETION_PROTECTION_TAG_KEY] = DELETION_PROTECTION_TAG_VALUE;
+    } else {
+        tags_map.erase(DELETION_PROTECTION_TAG_KEY);
+    }
+}
+
 static future<executor::request_return_type> create_table_on_shard0(tracing::trace_state_ptr trace_state, rjson::value request, service::storage_proxy& sp, service::migration_manager& mm, gms::gossiper& gossiper) {
     assert(this_shard_id() == 0);
 
@@ -1228,6 +1292,11 @@ static future<executor::request_return_type> create_table_on_shard0(tracing::tra
     if (tags && tags->IsArray()) {
         update_tags_map(*tags, tags_map, update_tags_action::add_tags);
     }
+
+    if (is_deletion_protection_enabled(request)) {
+        tags_map[DELETION_PROTECTION_TAG_KEY] = DELETION_PROTECTION_TAG_VALUE;
+    }
+
     builder.add_extension(db::tags_extension::NAME, ::make_shared<db::tags_extension>(tags_map));
 
     schema_ptr schema = builder.build();
@@ -1345,6 +1414,10 @@ future<executor::request_return_type> executor::update_table(client_state& clien
         if (stream_specification && stream_specification->IsObject()) {
             add_stream_options(*stream_specification, builder, p.local());
         }
+
+        std::map<sstring, sstring> tags;
+        update_deletion_protection_attribute(tab, request, tags);
+        builder.add_extension(db::tags_extension::NAME, ::make_shared<db::tags_extension>(tags));
 
         auto schema = builder.build();
 
