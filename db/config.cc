@@ -895,6 +895,7 @@ db::config::config(std::shared_ptr<db::extensions> exts)
     , alternator_ttl_period_in_seconds(this, "alternator_ttl_period_in_seconds", value_status::Used,
         60*60*24,
         "The default period for Alternator's expiration scan. Alternator attempts to scan every table within that period.")
+    , alternator_listen_backlog(this, "alternator_listen_backlog", value_status::Used, 100, "The listen_backlog of Alternator http server, increase this parameter value in scenarios where there are a large number of connections.")
     , alternator_getitem_timeout_in_ms(this, "alternator_getitem_timeout_in_ms", value_status::Used, 3000, "The server-side timeout for completing Alternator getitem API requests.")
     , alternator_putitem_nonlwt_timeout_in_ms(this, "alternator_putitem_nonlwt_timeout_in_ms", value_status::Used, 2000, "The server-side timeout for completing Alternator normal write API requests.")
     , alternator_putitem_lwt_timeout_in_ms(this, "alternator_putitem_lwt_timeout_in_ms", value_status::Used, 5000, "The server-side timeout for completing Alternator lwt write API requests.")
